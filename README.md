@@ -1,20 +1,20 @@
-# mtool
+# mtool - multi-tool
 
 ![Code Base: AI Vibes](https://img.shields.io/badge/Code%20Base-AI%20Vibes%20%F0%9F%A4%A0-blue)
 
-A Swiss army knife CLI utility written in Go, using exclusively standard library packages.
+`mtool` is a Swiss army knife CLI utility written in Go, using exclusively standard library packages.
 
 ## Motivation
 
-The goal of this project was to write a practical, compilable CLI tool in Go that incorporates as many standard library modules as feasible — without any third-party dependencies. Rather than contriving artificial usage, each package is pulled in naturally through a set of subcommands that solve real, everyday tasks: serving files, fetching URLs, hashing data, inspecting TLS certificates, benchmarking endpoints, and more.
+The goal of this project was to write a practical CLI tool in Go that incorporates as many standard library modules as feasible without any third-party dependencies. Rather than contriving artificial usage, each package is pulled in naturally through a set of subcommands that solve real, everyday tasks: serving files, fetching URLs, hashing data, inspecting TLS certificates, benchmarking endpoints, converting images and more.
 
 The result is a single-binary multi-tool that leverages **86 unique standard library packages**.
 
 ## Disclaimer
 
 This software was developed with the assistance of AI (Anthropic Claude). It is
-provided "as is", without warranty of any kind, express or implied. Use at your
-own risk. The author assumes no liability for any damages arising from its use.
+provided "as is", without warranty of any kind, express or implied. **Use at your
+own risk.** The author assumes no liability for any damages arising from its use.
 
 ## Installation
 

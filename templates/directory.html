@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Index of {{.Path}}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; margin: 2em; background: #fafafa; color: #333; }
+    h1 { border-bottom: 1px solid #ddd; padding-bottom: 0.5em; }
+    table { border-collapse: collapse; width: 100%; }
+    th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #ddd; }
+    td { padding: 6px 12px; border-bottom: 1px solid #eee; }
+    tr:hover { background: #e8f0fe; }
+    a { color: #1a73e8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .meta { color: #666; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>Index of {{.Path}}</h1>
+  <table>
+    <tr><th>Name</th><th>Size</th><th>Modified</th></tr>
+    {{range .Entries}}
+    <tr>
+      <td><a href="{{.Name}}{{if .IsDir}}/{{end}}">{{.Name}}{{if .IsDir}}/{{end}}</a></td>
+      <td class="meta">{{.Size}}</td>
+      <td class="meta">{{.ModTime}}</td>
+    </tr>
+    {{end}}
+  </table>
+</body>
+</html>

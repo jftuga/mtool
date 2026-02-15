@@ -18,6 +18,14 @@ own risk.** The author assumes no liability for any damages arising from its use
 
 ## Installation
 
+**Homebrew**
+```bash
+brew tap jftuga/homebrew-tap
+brew update
+brew install jftuga/tap/mtool
+```
+
+**Source**
 ```bash
 git clone https://github.com/jftuga/mtool.git
 cd mtool

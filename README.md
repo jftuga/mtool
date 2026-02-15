@@ -16,6 +16,15 @@ This software was developed with the assistance of AI (Anthropic Claude). It is
 provided "as is", without warranty of any kind, express or implied. **Use at your
 own risk.** The author assumes no liability for any damages arising from its use.
 
+## Use Cases
+
+- **Minimal / distroless Docker containers** - A single static binary replaces `curl`, `openssl`, `sha256sum`, `base64`, `tar`, `gzip`, and more. A `FROM scratch` image with just `mtool` can be under 15 MB.
+- **CI/CD pipelines** - Hash verification, archive creation, secret generation, and endpoint benchmarking without installing multiple tools or adding dependencies.
+- **Air-gapped / restricted environments** - No package manager or network access needed. Copy one binary and get a full toolkit.
+- **Incident response** - Drop a single binary onto a system to hash files, inspect TLS certificates, check DNS records, or fetch URLs.
+- **Embedded / IoT systems** - Constrained environments where installing a full toolchain is impractical.
+- **Cross-platform developer tooling** - Consistent behavior across macOS, Linux, and Windows without platform-specific alternatives.
+
 ## Installation
 
 **Homebrew**

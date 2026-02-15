@@ -53,8 +53,8 @@ Run `mtool <command> -h` for help on any subcommand.
 | `decode` | Decode data (base64, base32, hex, ascii85, URL, quoted-printable, UTF-16) | `encoding/base64`, `encoding/base32`, `encoding/ascii85`, `encoding/hex`, `net/url`, `mime/quotedprintable`, `unicode/utf16` |
 | `info` | Display system and network information in multiple formats | `runtime`, `runtime/debug`, `encoding/json`, `encoding/xml`, `encoding/csv`, `reflect`, `text/tabwriter`, `net`, `net/netip`, `os/user`, `maps` |
 | `archive` | Create tar.gz or zip archives | `archive/tar`, `archive/zip`, `compress/gzip`, `path/filepath` |
-| `generate` | Generate passwords, tokens, UUIDs, or random data | `crypto/rand`, `math/rand/v2`, `math/big`, `encoding/binary` |
-| `bench` | Benchmark an HTTP endpoint with concurrency and percentile stats | `sync`, `sync/atomic`, `container/heap`, `container/list`, `math`, `sort` |
+| `generate` | Generate passwords, tokens, UUIDs, or random data | `crypto/rand`, `math/big`, `encoding/binary` |
+| `bench` | Benchmark an HTTP endpoint with concurrency, jitter, and percentile stats | `sync`, `sync/atomic`, `container/heap`, `container/list`, `math`, `math/rand/v2`, `sort` |
 | `inspect` | Inspect TLS certificates or DNS records | `crypto/tls`, `crypto/x509`, `encoding/pem`, `net`, `net/netip` |
 | `transform` | Transform text (case, sort, grep, frequency, replace, and more) | `regexp`, `unicode`, `unicode/utf8`, `bufio`, `slices`, `cmp`, `strconv` |
 | `image` | Convert images between PNG, JPEG, and GIF formats with dithering | `image`, `image/png`, `image/jpeg`, `image/gif`, `image/draw`, `image/color/palette` |
@@ -146,6 +146,7 @@ mtool generate -mode bigint -length 256
 ```bash
 mtool bench -n 500 -c 20 https://example.com
 mtool bench -n 1000 -c 50 -method POST https://api.example.com/health
+mtool bench -n 500 -c 20 -jitter 100ms https://example.com
 ```
 
 ### Inspect TLS certificates

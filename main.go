@@ -1,7 +1,8 @@
 // mtool is a Swiss army knife CLI utility that provides subcommands for file
 // serving, HTTP fetching, file hashing, encoding/decoding, archiving, system
-// information, password generation, HTTP benchmarking, TLS inspection, and text
-// transformation. It exclusively uses Go standard library packages.
+// information, password generation, HTTP benchmarking, TLS/DNS inspection,
+// text transformation, image conversion, file encryption/decryption, and
+// compression/decompression. It exclusively uses Go standard library packages.
 
 package main
 
@@ -11,8 +12,10 @@ import (
 	"bufio"
 	"bytes"
 	"cmp"
+	"compress/bzip2"
 	"compress/flate"
 	"compress/gzip"
+	"compress/lzw"
 	"compress/zlib"
 	"container/heap"
 	"container/list"
@@ -46,7 +49,10 @@ import (
 	"flag"
 	"fmt"
 	"hash"
+	"hash/adler32"
 	"hash/crc32"
+	"hash/crc64"
+	"hash/fnv"
 	"html"
 	"html/template"
 	"image"
@@ -64,9 +70,11 @@ import (
 	"math/big"
 	mrand "math/rand/v2"
 	"mime"
+	"mime/quotedprintable"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptrace"
 	"net/http/httputil"
 	"net/netip"
 	"net/url"
@@ -91,6 +99,7 @@ import (
 	"text/template/parse"
 	"time"
 	"unicode"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -173,7 +182,7 @@ Commands:
   image      Convert images between PNG, JPEG, and GIF formats
   encrypt    Encrypt a file with AES-256-GCM (password-based)
   decrypt    Decrypt a file encrypted with the encrypt command
-  compress   Compress or decompress data (gzip, zlib)
+  compress   Compress or decompress data (gzip, zlib, lzw, bzip2)
   version    Show version information
 
 Run 'mtool <command> -h' for help on a specific command.
@@ -461,6 +470,7 @@ func cmdFetch(args []string) error {
 	timeout := fs.Duration("timeout", 30*time.Second, "request timeout")
 	showHeaders := fs.Bool("headers", false, "show response headers")
 	dumpReq := fs.Bool("dump", false, "dump raw request")
+	trace := fs.Bool("trace", false, "show timing breakdown (DNS, TLS, TTFB)")
 	output := fs.String("output", "", "write body to file instead of stdout")
 	fs.Parse(args)
 
@@ -491,6 +501,45 @@ func cmdFetch(args []string) error {
 		return fmt.Errorf("creating request: %w", err)
 	}
 
+	// Set up httptrace if -trace is enabled
+	var traceInfo struct {
+		dnsStart     time.Time
+		dnsDone      time.Duration
+		connectStart time.Time
+		connectDone  time.Duration
+		tlsStart     time.Time
+		tlsDone      time.Duration
+		gotFirstByte time.Duration
+		requestStart time.Time
+	}
+	if *trace {
+		traceCtx := &httptrace.ClientTrace{
+			DNSStart: func(_ httptrace.DNSStartInfo) {
+				traceInfo.dnsStart = time.Now()
+			},
+			DNSDone: func(_ httptrace.DNSDoneInfo) {
+				traceInfo.dnsDone = time.Since(traceInfo.dnsStart)
+			},
+			ConnectStart: func(_, _ string) {
+				traceInfo.connectStart = time.Now()
+			},
+			ConnectDone: func(_, _ string, _ error) {
+				traceInfo.connectDone = time.Since(traceInfo.connectStart)
+			},
+			TLSHandshakeStart: func() {
+				traceInfo.tlsStart = time.Now()
+			},
+			TLSHandshakeDone: func(_ tls.ConnectionState, _ error) {
+				traceInfo.tlsDone = time.Since(traceInfo.tlsStart)
+			},
+			GotFirstResponseByte: func() {
+				traceInfo.gotFirstByte = time.Since(traceInfo.requestStart)
+			},
+		}
+		ctx = httptrace.WithClientTrace(ctx, traceCtx)
+		req = req.WithContext(ctx)
+	}
+
 	if *headerFlag != "" {
 		parts := strings.SplitN(*headerFlag, ":", 2)
 		if len(parts) == 2 {
@@ -505,7 +554,8 @@ func cmdFetch(args []string) error {
 		}
 	}
 
-	start := time.Now()
+	traceInfo.requestStart = time.Now()
+	start := traceInfo.requestStart
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return fmt.Errorf("creating cookie jar: %w", err)
@@ -521,6 +571,24 @@ func cmdFetch(args []string) error {
 	fmt.Fprintf(os.Stderr, "HTTP/%d.%d %s (%.2fs)\n",
 		resp.ProtoMajor, resp.ProtoMinor, resp.Status,
 		elapsed.Seconds())
+
+	if *trace {
+		fmt.Fprintf(os.Stderr, "\nTrace:\n")
+		if traceInfo.dnsDone > 0 {
+			fmt.Fprintf(os.Stderr, "  DNS Lookup:    %s\n", traceInfo.dnsDone.Round(time.Microsecond))
+		}
+		if traceInfo.connectDone > 0 {
+			fmt.Fprintf(os.Stderr, "  TCP Connect:   %s\n", traceInfo.connectDone.Round(time.Microsecond))
+		}
+		if traceInfo.tlsDone > 0 {
+			fmt.Fprintf(os.Stderr, "  TLS Handshake: %s\n", traceInfo.tlsDone.Round(time.Microsecond))
+		}
+		if traceInfo.gotFirstByte > 0 {
+			fmt.Fprintf(os.Stderr, "  TTFB:          %s\n", traceInfo.gotFirstByte.Round(time.Microsecond))
+		}
+		fmt.Fprintf(os.Stderr, "  Total:         %s\n", elapsed.Round(time.Microsecond))
+		fmt.Fprintln(os.Stderr)
+	}
 
 	if *showHeaders {
 		for k, vals := range resp.Header {
@@ -555,9 +623,14 @@ func cmdFetch(args []string) error {
 
 func cmdHash(args []string) error {
 	fs := flag.NewFlagSet("hash", flag.ExitOnError)
-	algo := fs.String("algo", "sha256", "algorithm: md5, sha1, sha256, sha512, sha3-256, sha3-512, crc32")
+	algo := fs.String("algo", "sha256", "algorithm: md5, sha1, sha256, sha512, sha3-256, sha3-512, crc32, crc64, adler32, fnv32, fnv64, fnv128")
 	hmacKey := fs.String("hmac", "", "HMAC key (uses HMAC mode with chosen algo)")
 	fs.Parse(args)
+
+	nonHMACAlgos := map[string]bool{
+		"crc32": true, "crc64": true, "adler32": true,
+		"fnv32": true, "fnv64": true, "fnv128": true,
+	}
 
 	hashFuncs := map[string]func() hash.Hash{
 		"md5":      md5.New,
@@ -567,11 +640,16 @@ func cmdHash(args []string) error {
 		"sha3-256": func() hash.Hash { return sha3.New256() },
 		"sha3-512": func() hash.Hash { return sha3.New512() },
 		"crc32":    func() hash.Hash { return crc32.NewIEEE() },
+		"crc64":    func() hash.Hash { return crc64.New(crc64.MakeTable(crc64.ECMA)) },
+		"adler32":  func() hash.Hash { return adler32.New() },
+		"fnv32":    func() hash.Hash { return fnv.New32a() },
+		"fnv64":    func() hash.Hash { return fnv.New64a() },
+		"fnv128":   func() hash.Hash { return fnv.New128a() },
 	}
 
 	newHash, ok := hashFuncs[*algo]
 	if !ok {
-		return fmt.Errorf("unknown algorithm: %s (choices: md5, sha1, sha256, sha512, sha3-256, sha3-512, crc32)", *algo)
+		return fmt.Errorf("unknown algorithm: %s (choices: md5, sha1, sha256, sha512, sha3-256, sha3-512, crc32, crc64, adler32, fnv32, fnv64, fnv128)", *algo)
 	}
 
 	files := fs.Args()
@@ -581,7 +659,7 @@ func cmdHash(args []string) error {
 
 	for _, file := range files {
 		var h hash.Hash
-		if *hmacKey != "" && *algo != "crc32" {
+		if *hmacKey != "" && !nonHMACAlgos[*algo] {
 			h = hmac.New(newHash, []byte(*hmacKey))
 		} else {
 			h = newHash()
@@ -618,7 +696,7 @@ func cmdHash(args []string) error {
 
 func cmdEncode(args []string) error {
 	fs := flag.NewFlagSet("encode", flag.ExitOnError)
-	format := fs.String("format", "base64", "encoding format: base64, base32, hex, ascii85, url")
+	format := fs.String("format", "base64", "encoding format: base64, base32, hex, ascii85, url, qp (quoted-printable), utf16")
 	fs.Parse(args)
 
 	input, err := readInput(fs.Args())
@@ -639,6 +717,25 @@ func cmdEncode(args []string) error {
 		fmt.Println(string(dst[:n]))
 	case "url":
 		fmt.Println(url.QueryEscape(string(input)))
+	case "qp":
+		var buf bytes.Buffer
+		w := quotedprintable.NewWriter(&buf)
+		if _, err := w.Write(input); err != nil {
+			return fmt.Errorf("quoted-printable encode: %w", err)
+		}
+		if err := w.Close(); err != nil {
+			return fmt.Errorf("quoted-printable encode: %w", err)
+		}
+		fmt.Print(buf.String())
+	case "utf16":
+		runes := []rune(string(input))
+		encoded := utf16.Encode(runes)
+		// Write as little-endian with BOM
+		bom := []byte{0xFF, 0xFE}
+		os.Stdout.Write(bom)
+		for _, u := range encoded {
+			os.Stdout.Write([]byte{byte(u), byte(u >> 8)})
+		}
 	default:
 		return fmt.Errorf("unknown format: %s", *format)
 	}
@@ -647,7 +744,7 @@ func cmdEncode(args []string) error {
 
 func cmdDecode(args []string) error {
 	fs := flag.NewFlagSet("decode", flag.ExitOnError)
-	format := fs.String("format", "base64", "decoding format: base64, base32, hex, ascii85, url")
+	format := fs.String("format", "base64", "decoding format: base64, base32, hex, ascii85, url, qp (quoted-printable), utf16")
 	fs.Parse(args)
 
 	input, err := readInput(fs.Args())
@@ -688,6 +785,38 @@ func cmdDecode(args []string) error {
 			return fmt.Errorf("url decode: %w", err)
 		}
 		fmt.Print(decoded)
+	case "qp":
+		r := quotedprintable.NewReader(strings.NewReader(trimmed))
+		decoded, err := io.ReadAll(r)
+		if err != nil {
+			return fmt.Errorf("quoted-printable decode: %w", err)
+		}
+		os.Stdout.Write(decoded)
+	case "utf16":
+		raw := input
+		// Strip BOM if present (little-endian or big-endian)
+		littleEndian := true
+		if len(raw) >= 2 {
+			if raw[0] == 0xFF && raw[1] == 0xFE {
+				raw = raw[2:]
+			} else if raw[0] == 0xFE && raw[1] == 0xFF {
+				raw = raw[2:]
+				littleEndian = false
+			}
+		}
+		if len(raw)%2 != 0 {
+			return errors.New("utf16 decode: input has odd number of bytes")
+		}
+		u16 := make([]uint16, len(raw)/2)
+		for i := range u16 {
+			if littleEndian {
+				u16[i] = uint16(raw[2*i]) | uint16(raw[2*i+1])<<8
+			} else {
+				u16[i] = uint16(raw[2*i])<<8 | uint16(raw[2*i+1])
+			}
+		}
+		runes := utf16.Decode(u16)
+		fmt.Print(string(runes))
 	default:
 		return fmt.Errorf("unknown format: %s", *format)
 	}
@@ -1285,10 +1414,10 @@ func generateBigInt(bits int) (string, error) {
 // latencyHeap implements heap.Interface for float64 values (latencies in ms).
 type latencyHeap []float64
 
-func (h latencyHeap) Len() int            { return len(h) }
-func (h latencyHeap) Less(i, j int) bool   { return h[i] < h[j] }
-func (h latencyHeap) Swap(i, j int)        { h[i], h[j] = h[j], h[i] }
-func (h *latencyHeap) Push(x any)          { *h = append(*h, x.(float64)) }
+func (h latencyHeap) Len() int           { return len(h) }
+func (h latencyHeap) Less(i, j int) bool { return h[i] < h[j] }
+func (h latencyHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *latencyHeap) Push(x any)        { *h = append(*h, x.(float64)) }
 func (h *latencyHeap) Pop() any {
 	old := *h
 	n := len(old)
@@ -2069,18 +2198,25 @@ func deriveKey(password, salt []byte) ([]byte, error) {
 }
 
 // ---------------------------------------------------------------------------
-// compress — gzip / zlib compression and decompression
+// compress — gzip / zlib / lzw compression and decompression
 // ---------------------------------------------------------------------------
 
 func cmdCompress(args []string) error {
 	fs := flag.NewFlagSet("compress", flag.ExitOnError)
 	decompress := fs.Bool("d", false, "decompress instead of compress")
-	format := fs.String("format", "gzip", "compression format: gzip, zlib")
-	level := fs.Int("level", gzip.DefaultCompression, "compression level (1-9)")
+	format := fs.String("format", "gzip", "compression format: gzip, zlib, lzw, bzip2 (bzip2: decompress only)")
+	level := fs.Int("level", gzip.DefaultCompression, "compression level (1-9, not applicable to lzw/bzip2)")
+	lzwLitWidth := fs.Int("litwidth", 8, "LZW literal code bit width (2-8, lzw format only)")
 	fs.Parse(args)
 
 	if fs.NArg() < 2 {
-		return errors.New("usage: mtool compress [-d] [-format gzip|zlib] <input> <output>")
+		return errors.New("usage: mtool compress [-d] [-format gzip|zlib|lzw|bzip2] <input> <output>\n  note: bzip2 supports decompression only")
+	}
+
+	if *format == "lzw" && !*decompress {
+		if *lzwLitWidth < 2 || *lzwLitWidth > 8 {
+			return fmt.Errorf("litwidth must be between 2 and 8, got %d", *lzwLitWidth)
+		}
 	}
 
 	inFile, err := os.Open(fs.Arg(0))
@@ -2098,10 +2234,10 @@ func cmdCompress(args []string) error {
 	if *decompress {
 		return decompressStream(inFile, outFile, *format)
 	}
-	return compressStream(inFile, outFile, *format, *level)
+	return compressStream(inFile, outFile, *format, *level, *lzwLitWidth)
 }
 
-func compressStream(r io.Reader, w io.Writer, format string, level int) error {
+func compressStream(r io.Reader, w io.Writer, format string, level int, lzwLitWidth int) error {
 	var compressor io.WriteCloser
 	var err error
 
@@ -2110,8 +2246,16 @@ func compressStream(r io.Reader, w io.Writer, format string, level int) error {
 		compressor, err = gzip.NewWriterLevel(w, level)
 	case "zlib":
 		compressor, err = zlib.NewWriterLevel(w, level)
+	case "lzw":
+		// Write a 1-byte header with the litwidth so decompression is self-describing.
+		if _, err := w.Write([]byte{byte(lzwLitWidth)}); err != nil {
+			return fmt.Errorf("writing lzw header: %w", err)
+		}
+		compressor = lzw.NewWriter(w, lzw.LSB, lzwLitWidth)
+	case "bzip2":
+		return fmt.Errorf("bzip2 compression is not supported (decompress only)")
 	default:
-		return fmt.Errorf("unsupported format: %s (choices: gzip, zlib)", format)
+		return fmt.Errorf("unsupported format: %s (choices: gzip, zlib, lzw)", format)
 	}
 	if err != nil {
 		return fmt.Errorf("creating compressor: %w", err)
@@ -2138,8 +2282,22 @@ func decompressStream(r io.Reader, w io.Writer, format string) error {
 		decompressor, err = gzip.NewReader(r)
 	case "zlib":
 		decompressor, err = zlib.NewReader(r)
+	case "lzw":
+		// Read the 1-byte litwidth header written during compression.
+		var hdr [1]byte
+		if _, err := io.ReadFull(r, hdr[:]); err != nil {
+			return fmt.Errorf("reading lzw header: %w", err)
+		}
+		litWidth := int(hdr[0])
+		if litWidth < 2 || litWidth > 8 {
+			return fmt.Errorf("invalid lzw litwidth in header: %d", litWidth)
+		}
+		decompressor = lzw.NewReader(r, lzw.LSB, litWidth)
+	case "bzip2":
+		// compress/bzip2 returns an io.Reader, wrap it as io.ReadCloser
+		decompressor = io.NopCloser(bzip2.NewReader(r))
 	default:
-		return fmt.Errorf("unsupported format: %s (choices: gzip, zlib)", format)
+		return fmt.Errorf("unsupported format: %s (choices: gzip, zlib, lzw, bzip2)", format)
 	}
 	if err != nil {
 		return fmt.Errorf("creating decompressor: %w", err)

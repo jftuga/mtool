@@ -17,6 +17,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -1140,6 +1141,751 @@ func TestCompressDecompressZlib(t *testing.T) {
 	}
 	if string(decData) != original {
 		t.Error("decompressed data does not match original")
+	}
+}
+
+func TestCompressDecompressBzip2(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	compPath := filepath.Join(dir, "input.txt.bz2")
+	decPath := filepath.Join(dir, "output.txt")
+
+	original := strings.Repeat("bzip2 decompression test data\n", 50)
+	writeTestFile(t, srcPath, original)
+
+	// Compress using the system bzip2 command (Go stdlib has no bzip2 writer).
+	cmd := exec.Command("bzip2", "-k", srcPath)
+	if err := cmd.Run(); err != nil {
+		t.Skipf("bzip2 command not available: %v", err)
+	}
+
+	compStat, err := os.Stat(compPath)
+	if err != nil {
+		t.Fatalf("compressed file not created: %v", err)
+	}
+	if compStat.Size() >= int64(len(original)) {
+		t.Errorf("compressed size (%d) should be less than original (%d)", compStat.Size(), len(original))
+	}
+
+	// Decompress using mtool.
+	if err := cmdCompress([]string{"-d", "-format", "bzip2", compPath, decPath}); err != nil {
+		t.Fatalf("decompress: %v", err)
+	}
+
+	decData, err := os.ReadFile(decPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(decData) != original {
+		t.Error("decompressed data does not match original")
+	}
+}
+
+func TestCompressBzip2RejectsCompress(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	compPath := filepath.Join(dir, "input.txt.bz2")
+
+	writeTestFile(t, srcPath, "some data\n")
+
+	err := cmdCompress([]string{"-format", "bzip2", srcPath, compPath})
+	if err == nil {
+		t.Fatal("expected error when compressing with bzip2, got nil")
+	}
+	if !strings.Contains(err.Error(), "decompress only") {
+		t.Errorf("expected 'decompress only' in error, got: %v", err)
+	}
+}
+
+func TestCompressDecompressLZW(t *testing.T) {
+	// Test with different litwidths. Each litwidth N can encode byte values 0 to 2^N-1.
+	// litwidth 7 handles 0-127 (ASCII text), litwidth 8 handles 0-255 (all bytes).
+	// litwidth 6 handles 0-63, so we use data restricted to that range.
+	tests := []struct {
+		litwidth string
+		data     string
+	}{
+		{"6", strings.Repeat("\x01\x02\x03\x10\x20\x3F", 100)}, // bytes 0-63 only
+		{"7", strings.Repeat("LZW test 01234\n", 100)},         // ASCII 0-127
+		{"8", strings.Repeat("lzw compression test data\n", 100)},
+	}
+
+	for _, tc := range tests {
+		t.Run("litwidth_"+tc.litwidth, func(t *testing.T) {
+			dir := t.TempDir()
+			srcPath := filepath.Join(dir, "input.bin")
+			compPath := filepath.Join(dir, "input.lzw")
+			decPath := filepath.Join(dir, "output.bin")
+
+			if err := os.WriteFile(srcPath, []byte(tc.data), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			// Compress with specific litwidth.
+			if err := cmdCompress([]string{"-format", "lzw", "-litwidth", tc.litwidth, srcPath, compPath}); err != nil {
+				t.Fatalf("compress: %v", err)
+			}
+
+			// Verify the first byte of the compressed file is the litwidth header.
+			compData, err := os.ReadFile(compPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(compData) == 0 {
+				t.Fatal("compressed file is empty")
+			}
+			if fmt.Sprintf("%d", compData[0]) != tc.litwidth {
+				t.Errorf("expected litwidth header byte %s, got %d", tc.litwidth, compData[0])
+			}
+
+			// Decompress without specifying litwidth — should auto-detect from header.
+			if err := cmdCompress([]string{"-d", "-format", "lzw", compPath, decPath}); err != nil {
+				t.Fatalf("decompress: %v", err)
+			}
+
+			decData, err := os.ReadFile(decPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(decData) != tc.data {
+				t.Error("decompressed data does not match original")
+			}
+		})
+	}
+}
+
+func TestHashAdler32(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	writeTestFile(t, srcPath, "hello")
+
+	out := captureStdout(t, func() {
+		if err := cmdHash([]string{"-algo", "adler32", srcPath}); err != nil {
+			t.Fatalf("hash: %v", err)
+		}
+	})
+	if !strings.Contains(out, "062c0215") {
+		t.Errorf("expected adler32 hash 062c0215, got: %s", strings.TrimSpace(out))
+	}
+}
+
+func TestHashCRC64(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	writeTestFile(t, srcPath, "hello")
+
+	out := captureStdout(t, func() {
+		if err := cmdHash([]string{"-algo", "crc64", srcPath}); err != nil {
+			t.Fatalf("hash: %v", err)
+		}
+	})
+	// Verify it produces a 16-hex-char hash
+	fields := strings.Fields(out)
+	if len(fields) < 1 || len(fields[0]) != 16 {
+		t.Errorf("expected 16-char crc64 hash, got: %s", strings.TrimSpace(out))
+	}
+}
+
+func TestHashFNV(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	writeTestFile(t, srcPath, "hello")
+
+	tests := []struct {
+		algo   string
+		hexLen int
+	}{
+		{"fnv32", 8},
+		{"fnv64", 16},
+		{"fnv128", 32},
+	}
+	for _, tc := range tests {
+		t.Run(tc.algo, func(t *testing.T) {
+			out := captureStdout(t, func() {
+				if err := cmdHash([]string{"-algo", tc.algo, srcPath}); err != nil {
+					t.Fatalf("hash: %v", err)
+				}
+			})
+			fields := strings.Fields(out)
+			if len(fields) < 1 || len(fields[0]) != tc.hexLen {
+				t.Errorf("expected %d-char %s hash, got: %s", tc.hexLen, tc.algo, strings.TrimSpace(out))
+			}
+		})
+	}
+}
+
+func TestEncodeDecodeQuotedPrintable(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	// Use non-ASCII to ensure qp encoding is visible
+	original := "Héllo wörld €\n"
+	writeTestFile(t, srcPath, original)
+
+	// Encode
+	encoded := captureStdout(t, func() {
+		if err := cmdEncode([]string{"-format", "qp", srcPath}); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+	})
+
+	// Should contain =XX sequences for non-ASCII bytes
+	if !strings.Contains(encoded, "=C3") {
+		t.Errorf("expected quoted-printable encoding with =C3 sequences, got: %s", encoded)
+	}
+
+	// Decode — write encoded output to a file and decode it
+	encPath := filepath.Join(dir, "encoded.qp")
+	writeTestFile(t, encPath, encoded)
+
+	decoded := captureStdout(t, func() {
+		if err := cmdDecode([]string{"-format", "qp", encPath}); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+	})
+
+	if decoded != original {
+		t.Errorf("round-trip failed:\n  original: %q\n  decoded:  %q", original, decoded)
+	}
+}
+
+func TestEncodeDecodeUTF16(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	original := "Hello UTF-16 world!\n"
+	writeTestFile(t, srcPath, original)
+
+	// Encode to UTF-16 (binary output, so capture to file)
+	utf16Path := filepath.Join(dir, "output.utf16")
+	if err := cmdEncode([]string{"-format", "utf16", srcPath}); err != nil {
+		// cmdEncode writes to stdout, we need to redirect — use the command directly
+	}
+
+	// Use the compress-style approach: encode to file via pipe
+	// Actually, encode writes to stdout so we capture it
+	var encodedBuf bytes.Buffer
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	if err := cmdEncode([]string{"-format", "utf16", srcPath}); err != nil {
+		w.Close()
+		os.Stdout = old
+		t.Fatalf("encode: %v", err)
+	}
+	w.Close()
+	os.Stdout = old
+	io.Copy(&encodedBuf, r)
+
+	// Write to file for decoding
+	if err := os.WriteFile(utf16Path, encodedBuf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify BOM is present (little-endian: FF FE)
+	data := encodedBuf.Bytes()
+	if len(data) < 2 || data[0] != 0xFF || data[1] != 0xFE {
+		t.Error("expected UTF-16 LE BOM (FF FE)")
+	}
+
+	// Decode — cmdDecode appends a trailing newline via fmt.Println()
+	decoded := captureStdout(t, func() {
+		if err := cmdDecode([]string{"-format", "utf16", utf16Path}); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+	})
+
+	// The original already has \n, and cmdDecode adds another \n
+	expected := original + "\n"
+	if decoded != expected {
+		t.Errorf("round-trip failed:\n  expected: %q\n  decoded:  %q", expected, decoded)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// encode / decode round-trips
+// ---------------------------------------------------------------------------
+
+func TestEncodeDecodeBase64(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	original := "Hello, World! 123\n"
+	writeTestFile(t, srcPath, original)
+
+	encoded := captureStdout(t, func() {
+		if err := cmdEncode([]string{"-format", "base64", srcPath}); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+	})
+
+	encPath := filepath.Join(dir, "encoded.txt")
+	writeTestFile(t, encPath, encoded)
+
+	decoded := captureStdout(t, func() {
+		if err := cmdDecode([]string{"-format", "base64", encPath}); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+	})
+
+	// cmdDecode adds a trailing newline
+	if decoded != original+"\n" {
+		t.Errorf("round-trip failed:\n  original: %q\n  decoded:  %q", original, decoded)
+	}
+}
+
+func TestEncodeDecodeBase32(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	original := "Hello, World!"
+	writeTestFile(t, srcPath, original)
+
+	encoded := captureStdout(t, func() {
+		if err := cmdEncode([]string{"-format", "base32", srcPath}); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+	})
+
+	encPath := filepath.Join(dir, "encoded.txt")
+	writeTestFile(t, encPath, encoded)
+
+	decoded := captureStdout(t, func() {
+		if err := cmdDecode([]string{"-format", "base32", encPath}); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+	})
+
+	if decoded != original+"\n" {
+		t.Errorf("round-trip failed:\n  original: %q\n  decoded:  %q", original, decoded)
+	}
+}
+
+func TestEncodeDecodeHex(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	original := "Hello"
+	writeTestFile(t, srcPath, original)
+
+	encoded := captureStdout(t, func() {
+		if err := cmdEncode([]string{"-format", "hex", srcPath}); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+	})
+
+	if strings.TrimSpace(encoded) != "48656c6c6f" {
+		t.Errorf("expected hex 48656c6c6f, got: %s", strings.TrimSpace(encoded))
+	}
+
+	encPath := filepath.Join(dir, "encoded.txt")
+	writeTestFile(t, encPath, encoded)
+
+	decoded := captureStdout(t, func() {
+		if err := cmdDecode([]string{"-format", "hex", encPath}); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+	})
+
+	if decoded != original+"\n" {
+		t.Errorf("round-trip failed:\n  original: %q\n  decoded:  %q", original, decoded)
+	}
+}
+
+func TestEncodeDecodeAscii85(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	original := "Hello, World!"
+	writeTestFile(t, srcPath, original)
+
+	encoded := captureStdout(t, func() {
+		if err := cmdEncode([]string{"-format", "ascii85", srcPath}); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+	})
+
+	encPath := filepath.Join(dir, "encoded.txt")
+	writeTestFile(t, encPath, encoded)
+
+	decoded := captureStdout(t, func() {
+		if err := cmdDecode([]string{"-format", "ascii85", encPath}); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+	})
+
+	if decoded != original+"\n" {
+		t.Errorf("round-trip failed:\n  original: %q\n  decoded:  %q", original, decoded)
+	}
+}
+
+func TestEncodeDecodeURL(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	original := "hello world&foo=bar"
+	writeTestFile(t, srcPath, original)
+
+	encoded := captureStdout(t, func() {
+		if err := cmdEncode([]string{"-format", "url", srcPath}); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+	})
+
+	if !strings.Contains(encoded, "%26") || !strings.Contains(encoded, "%3D") {
+		t.Errorf("expected URL encoding of & and =, got: %s", strings.TrimSpace(encoded))
+	}
+
+	encPath := filepath.Join(dir, "encoded.txt")
+	writeTestFile(t, encPath, encoded)
+
+	decoded := captureStdout(t, func() {
+		if err := cmdDecode([]string{"-format", "url", encPath}); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+	})
+
+	if decoded != original+"\n" {
+		t.Errorf("round-trip failed:\n  original: %q\n  decoded:  %q", original, decoded)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// transform modes
+// ---------------------------------------------------------------------------
+
+func TestTransformUpper(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	writeTestFile(t, srcPath, "hello world\n")
+
+	out := captureStdout(t, func() {
+		if err := cmdTransform([]string{"-mode", "upper", srcPath}); err != nil {
+			t.Fatalf("transform: %v", err)
+		}
+	})
+
+	if out != "HELLO WORLD\n" {
+		t.Errorf("expected %q, got %q", "HELLO WORLD\n", out)
+	}
+}
+
+func TestTransformLower(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	writeTestFile(t, srcPath, "HELLO WORLD\n")
+
+	out := captureStdout(t, func() {
+		if err := cmdTransform([]string{"-mode", "lower", srcPath}); err != nil {
+			t.Fatalf("transform: %v", err)
+		}
+	})
+
+	if out != "hello world\n" {
+		t.Errorf("expected %q, got %q", "hello world\n", out)
+	}
+}
+
+func TestTransformReverse(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	writeTestFile(t, srcPath, "abcdef")
+
+	out := captureStdout(t, func() {
+		if err := cmdTransform([]string{"-mode", "reverse", srcPath}); err != nil {
+			t.Fatalf("transform: %v", err)
+		}
+	})
+
+	if out != "fedcba" {
+		t.Errorf("expected %q, got %q", "fedcba", out)
+	}
+}
+
+func TestTransformGrep(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	writeTestFile(t, srcPath, "apple\nbanana\napricot\ncherry\n")
+
+	out := captureStdout(t, func() {
+		if err := cmdTransform([]string{"-mode", "grep", "-pattern", "^ap", srcPath}); err != nil {
+			t.Fatalf("transform: %v", err)
+		}
+	})
+
+	if out != "apple\napricot\n" {
+		t.Errorf("expected %q, got %q", "apple\napricot\n", out)
+	}
+}
+
+func TestTransformReplace(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	writeTestFile(t, srcPath, "foo  bar   baz")
+
+	out := captureStdout(t, func() {
+		if err := cmdTransform([]string{"-mode", "replace", "-pattern", `\s+`, "-replacement", " ", srcPath}); err != nil {
+			t.Fatalf("transform: %v", err)
+		}
+	})
+
+	if out != "foo bar baz" {
+		t.Errorf("expected %q, got %q", "foo bar baz", out)
+	}
+}
+
+func TestTransformUniq(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	writeTestFile(t, srcPath, "apple\nbanana\napple\ncherry\nbanana\n")
+
+	out := captureStdout(t, func() {
+		if err := cmdTransform([]string{"-mode", "uniq", srcPath}); err != nil {
+			t.Fatalf("transform: %v", err)
+		}
+	})
+
+	if out != "apple\nbanana\ncherry\n" {
+		t.Errorf("expected %q, got %q", "apple\nbanana\ncherry\n", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// hash: multi-algorithm output length
+// ---------------------------------------------------------------------------
+
+func TestHashAlgorithms(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	writeTestFile(t, srcPath, "test data for hashing")
+
+	tests := []struct {
+		algo   string
+		hexLen int
+	}{
+		{"md5", 32},
+		{"sha1", 40},
+		{"sha256", 64},
+		{"sha512", 128},
+		{"sha3-256", 64},
+		{"sha3-512", 128},
+		{"crc32", 8},
+	}
+	for _, tc := range tests {
+		t.Run(tc.algo, func(t *testing.T) {
+			out := captureStdout(t, func() {
+				if err := cmdHash([]string{"-algo", tc.algo, srcPath}); err != nil {
+					t.Fatalf("hash: %v", err)
+				}
+			})
+			fields := strings.Fields(out)
+			if len(fields) < 1 {
+				t.Fatal("no output")
+			}
+			if len(fields[0]) != tc.hexLen {
+				t.Errorf("%s: expected %d hex chars, got %d (%s)", tc.algo, tc.hexLen, len(fields[0]), fields[0])
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// hash: HMAC mode
+// ---------------------------------------------------------------------------
+
+func TestHashHMAC(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	writeTestFile(t, srcPath, "hmac test data")
+
+	// Plain hash without HMAC
+	plain := captureStdout(t, func() {
+		if err := cmdHash([]string{"-algo", "sha256", srcPath}); err != nil {
+			t.Fatalf("hash: %v", err)
+		}
+	})
+
+	// Hash with HMAC key
+	hmacOut := captureStdout(t, func() {
+		if err := cmdHash([]string{"-algo", "sha256", "-hmac", "secret-key", srcPath}); err != nil {
+			t.Fatalf("hash: %v", err)
+		}
+	})
+
+	plainHash := strings.Fields(plain)[0]
+	hmacHash := strings.Fields(hmacOut)[0]
+
+	// HMAC output should differ from plain hash
+	if plainHash == hmacHash {
+		t.Error("HMAC hash should differ from plain hash")
+	}
+
+	// HMAC should be deterministic
+	hmacOut2 := captureStdout(t, func() {
+		if err := cmdHash([]string{"-algo", "sha256", "-hmac", "secret-key", srcPath}); err != nil {
+			t.Fatalf("hash: %v", err)
+		}
+	})
+	if strings.Fields(hmacOut2)[0] != hmacHash {
+		t.Error("HMAC output is not deterministic")
+	}
+
+	// Different key should produce different HMAC
+	hmacOut3 := captureStdout(t, func() {
+		if err := cmdHash([]string{"-algo", "sha256", "-hmac", "different-key", srcPath}); err != nil {
+			t.Fatalf("hash: %v", err)
+		}
+	})
+	if strings.Fields(hmacOut3)[0] == hmacHash {
+		t.Error("different HMAC keys produced identical output")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// archive: extract round-trips
+// ---------------------------------------------------------------------------
+
+func TestArchiveExtractTarGz(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	os.MkdirAll(srcDir, 0o755)
+	writeTestFile(t, filepath.Join(srcDir, "a.txt"), "alpha content")
+	writeTestFile(t, filepath.Join(srcDir, "b.txt"), "bravo content")
+
+	archivePath := filepath.Join(dir, "test.tar.gz")
+	if err := createTarGz(archivePath, []string{
+		filepath.Join(srcDir, "a.txt"),
+		filepath.Join(srcDir, "b.txt"),
+	}); err != nil {
+		t.Fatalf("createTarGz: %v", err)
+	}
+
+	destDir := filepath.Join(dir, "dest")
+	os.MkdirAll(destDir, 0o755)
+
+	if err := extractArchive(archivePath, destDir); err != nil {
+		t.Fatalf("extractArchive: %v", err)
+	}
+
+	// The extracted paths include the full original paths
+	for _, name := range []string{"a.txt", "b.txt"} {
+		extractedPath := filepath.Join(destDir, srcDir, name)
+		data, err := os.ReadFile(extractedPath)
+		if err != nil {
+			t.Errorf("reading extracted %s: %v", name, err)
+			continue
+		}
+		expected := map[string]string{"a.txt": "alpha content", "b.txt": "bravo content"}
+		if string(data) != expected[name] {
+			t.Errorf("%s: got %q, want %q", name, string(data), expected[name])
+		}
+	}
+}
+
+func TestArchiveExtractZip(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	os.MkdirAll(srcDir, 0o755)
+	writeTestFile(t, filepath.Join(srcDir, "x.txt"), "xray content")
+	writeTestFile(t, filepath.Join(srcDir, "y.txt"), "yankee content")
+
+	archivePath := filepath.Join(dir, "test.zip")
+	if err := createZip(archivePath, []string{
+		filepath.Join(srcDir, "x.txt"),
+		filepath.Join(srcDir, "y.txt"),
+	}); err != nil {
+		t.Fatalf("createZip: %v", err)
+	}
+
+	destDir := filepath.Join(dir, "dest")
+	os.MkdirAll(destDir, 0o755)
+
+	if err := extractArchive(archivePath, destDir); err != nil {
+		t.Fatalf("extractArchive: %v", err)
+	}
+
+	for _, name := range []string{"x.txt", "y.txt"} {
+		extractedPath := filepath.Join(destDir, srcDir, name)
+		data, err := os.ReadFile(extractedPath)
+		if err != nil {
+			t.Errorf("reading extracted %s: %v", name, err)
+			continue
+		}
+		expected := map[string]string{"x.txt": "xray content", "y.txt": "yankee content"}
+		if string(data) != expected[name] {
+			t.Errorf("%s: got %q, want %q", name, string(data), expected[name])
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// archive: createTarZlib round-trip
+// ---------------------------------------------------------------------------
+
+func TestCreateTarZlib(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "a.txt"), "alpha")
+	writeTestFile(t, filepath.Join(dir, "b.txt"), "bravo")
+
+	archivePath := filepath.Join(dir, "out.tar.zlib")
+	if err := createTarZlib(archivePath, []string{
+		filepath.Join(dir, "a.txt"),
+		filepath.Join(dir, "b.txt"),
+	}); err != nil {
+		t.Fatalf("createTarZlib: %v", err)
+	}
+
+	// Extract and verify
+	destDir := filepath.Join(dir, "dest")
+	os.MkdirAll(destDir, 0o755)
+
+	if err := extractArchive(archivePath, destDir); err != nil {
+		t.Fatalf("extractArchive tar.zlib: %v", err)
+	}
+
+	for _, tc := range []struct{ name, want string }{
+		{"a.txt", "alpha"},
+		{"b.txt", "bravo"},
+	} {
+		// Find the extracted file (path includes original dir structure)
+		var found bool
+		filepath.Walk(destDir, func(p string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return nil
+			}
+			if filepath.Base(p) == tc.name {
+				data, _ := os.ReadFile(p)
+				if string(data) != tc.want {
+					t.Errorf("%s: got %q, want %q", tc.name, string(data), tc.want)
+				}
+				found = true
+			}
+			return nil
+		})
+		if !found {
+			t.Errorf("extracted file %s not found", tc.name)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// compress: level affects output size
+// ---------------------------------------------------------------------------
+
+func TestCompressGzipLevels(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	original := strings.Repeat("compress level test data with some repetition\n", 200)
+	writeTestFile(t, srcPath, original)
+
+	fast := filepath.Join(dir, "fast.gz")
+	best := filepath.Join(dir, "best.gz")
+
+	if err := cmdCompress([]string{"-format", "gzip", "-level", "1", srcPath, fast}); err != nil {
+		t.Fatalf("compress level 1: %v", err)
+	}
+	if err := cmdCompress([]string{"-format", "gzip", "-level", "9", srcPath, best}); err != nil {
+		t.Fatalf("compress level 9: %v", err)
+	}
+
+	fastStat, _ := os.Stat(fast)
+	bestStat, _ := os.Stat(best)
+
+	if bestStat.Size() >= fastStat.Size() {
+		t.Errorf("level 9 (%d bytes) should be smaller than level 1 (%d bytes)", bestStat.Size(), fastStat.Size())
 	}
 }
 

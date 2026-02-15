@@ -1,4 +1,4 @@
-# mtool, (multi-tool)
+# mtool (multi-tool)
 
 ![Code Base: AI Vibes](https://img.shields.io/badge/Code%20Base-AI%20Vibes%20%F0%9F%A4%A0-blue)
 
@@ -8,7 +8,7 @@
 
 The goal of this project was to write a practical CLI tool in Go that incorporates as many standard library modules as feasible without any third-party dependencies. Rather than contriving artificial usage, each package is pulled in naturally through a set of subcommands that solve real, everyday tasks: serving files, fetching URLs, hashing data, inspecting TLS certificates, benchmarking endpoints, converting images and more.
 
-The result is a single-binary multi-tool that leverages **86 unique standard library packages**.
+The result is a single-binary multi-tool that leverages **95 unique standard library packages**.
 
 ## Disclaimer
 
@@ -39,10 +39,10 @@ Run `mtool <command> -h` for help on any subcommand.
 | Command | Description | Key stdlib packages |
 |---|---|---|
 | `serve` | Start an HTTP/HTTPS file server with directory listing, optional gzip, and self-signed TLS | `net/http`, `html/template`, `compress/gzip`, `compress/flate`, `embed`, `io/fs`, `mime`, `os/signal`, `context`, `syscall`, `crypto/ecdsa`, `crypto/elliptic`, `crypto/x509/pkix` |
-| `fetch` | Fetch a URL and display response details, with cookie support | `net/http`, `net/http/httputil`, `net/http/cookiejar`, `net/url` |
-| `hash` | Compute hashes of files or stdin | `crypto/md5`, `crypto/sha1`, `crypto/sha256`, `crypto/sha512`, `crypto/sha3`, `crypto/hmac`, `hash`, `hash/crc32`, `encoding/hex` |
-| `encode` | Encode data (base64, base32, hex, ascii85, URL) | `encoding/base64`, `encoding/base32`, `encoding/ascii85`, `encoding/hex`, `net/url` |
-| `decode` | Decode data (base64, base32, hex, ascii85, URL) | `encoding/base64`, `encoding/base32`, `encoding/ascii85`, `encoding/hex`, `net/url` |
+| `fetch` | Fetch a URL and display response details, with cookie support and timing trace | `net/http`, `net/http/httputil`, `net/http/httptrace`, `net/http/cookiejar`, `net/url` |
+| `hash` | Compute hashes of files or stdin | `crypto/md5`, `crypto/sha1`, `crypto/sha256`, `crypto/sha512`, `crypto/sha3`, `crypto/hmac`, `hash`, `hash/adler32`, `hash/crc32`, `hash/crc64`, `hash/fnv`, `encoding/hex` |
+| `encode` | Encode data (base64, base32, hex, ascii85, URL, quoted-printable, UTF-16) | `encoding/base64`, `encoding/base32`, `encoding/ascii85`, `encoding/hex`, `net/url`, `mime/quotedprintable`, `unicode/utf16` |
+| `decode` | Decode data (base64, base32, hex, ascii85, URL, quoted-printable, UTF-16) | `encoding/base64`, `encoding/base32`, `encoding/ascii85`, `encoding/hex`, `net/url`, `mime/quotedprintable`, `unicode/utf16` |
 | `info` | Display system and network information in multiple formats | `runtime`, `runtime/debug`, `encoding/json`, `encoding/xml`, `encoding/csv`, `reflect`, `text/tabwriter`, `net`, `net/netip`, `os/user`, `maps` |
 | `archive` | Create tar.gz or zip archives | `archive/tar`, `archive/zip`, `compress/gzip`, `path/filepath` |
 | `generate` | Generate passwords, tokens, UUIDs, or random data | `crypto/rand`, `math/rand/v2`, `math/big`, `encoding/binary` |
@@ -52,7 +52,7 @@ Run `mtool <command> -h` for help on any subcommand.
 | `image` | Convert images between PNG, JPEG, and GIF formats with dithering | `image`, `image/png`, `image/jpeg`, `image/gif`, `image/draw`, `image/color/palette` |
 | `encrypt` | Encrypt a file with AES-256-GCM using a password-derived key | `crypto/aes`, `crypto/cipher`, `crypto/pbkdf2`, `crypto/sha256`, `crypto/rand` |
 | `decrypt` | Decrypt a file encrypted with the encrypt command | `crypto/aes`, `crypto/cipher`, `crypto/pbkdf2` |
-| `compress` | Compress or decompress data (gzip, zlib) | `compress/gzip`, `compress/zlib` |
+| `compress` | Compress or decompress data (gzip, zlib, lzw, bzip2) | `compress/bzip2`, `compress/gzip`, `compress/lzw`, `compress/zlib` |
 
 ## Examples
 
@@ -73,6 +73,7 @@ mtool serve -addr :4443 -dir . -tls
 
 ```bash
 mtool fetch -headers https://example.com
+mtool fetch -trace https://example.com
 mtool fetch -method POST -body '{"key":"val"}' -output response.json https://api.example.com
 ```
 
@@ -83,6 +84,9 @@ mtool hash -algo sha256 myfile.txt
 echo "hello" | mtool hash -algo md5
 mtool hash -algo sha3-256 myfile.txt
 mtool hash -algo sha256 -hmac "secret-key" myfile.txt
+mtool hash -algo crc64 myfile.txt
+mtool hash -algo adler32 myfile.txt
+mtool hash -algo fnv64 myfile.txt
 ```
 
 ### Encode and decode
@@ -93,6 +97,10 @@ echo "aGVsbG8gd29ybGQK" | mtool decode -format base64
 echo "hello" | mtool encode -format base32
 echo "hello" | mtool encode -format ascii85
 echo "foo bar" | mtool encode -format url
+echo "Héllo wörld" | mtool encode -format qp
+echo "H=C3=A9llo" | mtool decode -format qp
+echo "hello" | mtool encode -format utf16 > output.utf16
+mtool decode -format utf16 output.utf16
 ```
 
 ### System information
@@ -199,14 +207,19 @@ mtool compress -format gzip largefile.txt largefile.txt.gz
 mtool compress -d -format gzip largefile.txt.gz largefile.txt
 mtool compress -format zlib data.bin data.bin.zlib
 mtool compress -d -format zlib data.bin.zlib data.bin
+mtool compress -format lzw data.bin data.bin.lzw
+mtool compress -d -format lzw data.bin.lzw data.bin
+mtool compress -d -format bzip2 data.bz2 data.txt
 mtool compress -level 9 -format gzip archive.tar archive.tar.gz
 ```
 
+> **Note:** bzip2 supports decompression only (Go's `compress/bzip2` package provides a reader but no writer).
+
 ## Standard Library Packages
 
-The following 86 packages from the Go standard library are used:
+The following 95 packages from the Go standard library are used:
 
-`archive/tar`, `archive/zip`, `bufio`, `bytes`, `cmp`, `compress/flate`, `compress/gzip`, `compress/zlib`, `container/heap`, `container/list`, `context`, `crypto/aes`, `crypto/cipher`, `crypto/ecdsa`, `crypto/elliptic`, `crypto/hmac`, `crypto/md5`, `crypto/pbkdf2`, `crypto/rand`, `crypto/sha1`, `crypto/sha256`, `crypto/sha3`, `crypto/sha512`, `crypto/tls`, `crypto/x509`, `crypto/x509/pkix`, `embed`, `encoding/ascii85`, `encoding/base32`, `encoding/base64`, `encoding/binary`, `encoding/csv`, `encoding/hex`, `encoding/json`, `encoding/pem`, `encoding/xml`, `errors`, `flag`, `fmt`, `hash`, `hash/crc32`, `html`, `html/template`, `image`, `image/color/palette`, `image/draw`, `image/gif`, `image/jpeg`, `image/png`, `io`, `io/fs`, `log`, `log/slog`, `maps`, `math`, `math/big`, `math/rand/v2`, `mime`, `net`, `net/http`, `net/http/cookiejar`, `net/http/httputil`, `net/netip`, `net/url`, `os`, `os/exec`, `os/signal`, `os/user`, `path`, `path/filepath`, `reflect`, `regexp`, `runtime`, `runtime/debug`, `slices`, `sort`, `strconv`, `strings`, `sync`, `sync/atomic`, `syscall`, `text/tabwriter`, `text/template/parse`, `time`, `unicode`, `unicode/utf8`
+`archive/tar`, `archive/zip`, `bufio`, `bytes`, `cmp`, `compress/bzip2`, `compress/flate`, `compress/gzip`, `compress/lzw`, `compress/zlib`, `container/heap`, `container/list`, `context`, `crypto/aes`, `crypto/cipher`, `crypto/ecdsa`, `crypto/elliptic`, `crypto/hmac`, `crypto/md5`, `crypto/pbkdf2`, `crypto/rand`, `crypto/sha1`, `crypto/sha256`, `crypto/sha3`, `crypto/sha512`, `crypto/tls`, `crypto/x509`, `crypto/x509/pkix`, `embed`, `encoding/ascii85`, `encoding/base32`, `encoding/base64`, `encoding/binary`, `encoding/csv`, `encoding/hex`, `encoding/json`, `encoding/pem`, `encoding/xml`, `errors`, `flag`, `fmt`, `hash`, `hash/adler32`, `hash/crc32`, `hash/crc64`, `hash/fnv`, `html`, `html/template`, `image`, `image/color/palette`, `image/draw`, `image/gif`, `image/jpeg`, `image/png`, `io`, `io/fs`, `log`, `log/slog`, `maps`, `math`, `math/big`, `math/rand/v2`, `mime`, `mime/quotedprintable`, `net`, `net/http`, `net/http/cookiejar`, `net/http/httptrace`, `net/http/httputil`, `net/netip`, `net/url`, `os`, `os/exec`, `os/signal`, `os/user`, `path`, `path/filepath`, `reflect`, `regexp`, `runtime`, `runtime/debug`, `slices`, `sort`, `strconv`, `strings`, `sync`, `sync/atomic`, `syscall`, `text/tabwriter`, `text/template/parse`, `time`, `unicode`, `unicode/utf16`, `unicode/utf8`
 
 ## Tests
 
@@ -242,6 +255,31 @@ Run with `go test -v ./...`
 | `TestEncryptProducesUniqueOutput` | Same file encrypted twice produces different ciphertext (unique salt/nonce) |
 | `TestCompressDecompressGzip` | Gzip round-trip: compress then decompress, verify content matches and compressed size is smaller |
 | `TestCompressDecompressZlib` | Zlib round-trip: compress then decompress, verify content matches and compressed size is smaller |
+| `TestCompressDecompressBzip2` | Bzip2 decompression: compress with system bzip2, decompress with mtool, verify content matches |
+| `TestCompressBzip2RejectsCompress` | Attempting bzip2 compression returns a clear "decompress only" error |
+| `TestCompressDecompressLZW` | LZW round-trip with litwidths 6, 7, 8: compress with header, decompress auto-detects litwidth |
+| `TestHashAdler32` | Adler-32 hash produces correct output for known input |
+| `TestHashCRC64` | CRC-64 hash produces correct output for known input |
+| `TestHashFNV` | FNV-32a, FNV-64a, FNV-128a produce correct output lengths for known input |
+| `TestEncodeDecodeQuotedPrintable` | Quoted-printable round-trip: encode then decode, verify non-ASCII is encoded and round-trips correctly |
+| `TestEncodeDecodeUTF16` | UTF-16 round-trip: encode with BOM then decode, verify content matches including non-ASCII characters |
+| `TestEncodeDecodeBase64` | Base64 round-trip: encode then decode, verify content matches |
+| `TestEncodeDecodeBase32` | Base32 round-trip: encode then decode, verify content matches |
+| `TestEncodeDecodeHex` | Hex round-trip: encode verifies known value, decode restores original |
+| `TestEncodeDecodeAscii85` | Ascii85 round-trip: encode then decode, verify content matches |
+| `TestEncodeDecodeURL` | URL encoding round-trip: verifies special characters are percent-encoded and decode restores original |
+| `TestTransformUpper` | Lowercase text converted to uppercase |
+| `TestTransformLower` | Uppercase text converted to lowercase |
+| `TestTransformReverse` | String reversal produces correct output |
+| `TestTransformGrep` | Regex filtering selects only matching lines |
+| `TestTransformReplace` | Regex replacement collapses whitespace correctly |
+| `TestTransformUniq` | Deduplication removes repeated lines, preserves order |
+| `TestHashAlgorithms` | All hash algorithms (md5, sha1, sha256, sha512, sha3-256, sha3-512, crc32) produce correct hex output lengths |
+| `TestHashHMAC` | HMAC differs from plain hash, is deterministic, and different keys produce different output |
+| `TestArchiveExtractTarGz` | Create tar.gz then extract, verify extracted file contents match originals |
+| `TestArchiveExtractZip` | Create zip then extract, verify extracted file contents match originals |
+| `TestCreateTarZlib` | Tar.zlib round-trip: create then extract, verify file contents match |
+| `TestCompressGzipLevels` | Gzip level 9 produces smaller output than level 1 for the same input |
 
 ## Personal Project Disclosure
 

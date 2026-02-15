@@ -21,7 +21,7 @@
     <tr><th>Name</th><th>Size</th><th>Modified</th></tr>
     {{range .Entries}}
     <tr>
-      <td><a href="{{.Name}}{{if .IsDir}}/{{end}}">{{.Name}}{{if .IsDir}}/{{end}}</a></td>
+      <td><a href="{{.Link}}{{if .IsDir}}/{{end}}">{{.Name}}{{if .IsDir}}/{{end}}</a></td>
       <td class="meta">{{.Size}}</td>
       <td class="meta">{{.ModTime}}</td>
     </tr>

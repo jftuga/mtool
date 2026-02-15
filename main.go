@@ -17,7 +17,6 @@ import (
 	"compress/gzip"
 	"compress/lzw"
 	"compress/zlib"
-	"container/heap"
 	"container/list"
 	"context"
 	"crypto/aes"
@@ -107,7 +106,7 @@ import (
 var templateFS embed.FS
 
 const pgmName = "mtool"
-const pgmVersion = "1.1.0"
+const pgmVersion = "1.2.0"
 const pgmUrl = "https://github.com/jftuga/mtool"
 const pgmDisclaimer = "DISCLAIMER: This program is vibe-coded. Use at your own risk."
 
@@ -220,13 +219,24 @@ func cmdServe(args []string) error {
 		reqPath := path.Clean(r.URL.Path)
 		filePath := filepath.Join(absDir, filepath.FromSlash(reqPath))
 
-		// Prevent path traversal outside the served root
-		if !strings.HasPrefix(filepath.Clean(filePath)+string(os.PathSeparator), filepath.Clean(absDir)+string(os.PathSeparator)) {
+		// Prevent path traversal outside the served root.
+		// Resolve symlinks so a symlink inside the root pointing outside is caught.
+		realPath, err := filepath.EvalSymlinks(filePath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		realRoot, err := filepath.EvalSymlinks(absDir)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !strings.HasPrefix(realPath+string(os.PathSeparator), realRoot+string(os.PathSeparator)) {
 			http.NotFound(w, r)
 			return
 		}
 
-		stat, err := os.Stat(filePath)
+		stat, err := os.Stat(realPath)
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -343,6 +353,7 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 
 type dirEntry struct {
 	Name    string
+	Link    string
 	Size    string
 	ModTime string
 	IsDir   bool
@@ -367,6 +378,7 @@ func serveDirectory(w http.ResponseWriter, _ *http.Request, dirPath, urlPath str
 		}
 		items = append(items, dirEntry{
 			Name:    e.Name(),
+			Link:    url.PathEscape(e.Name()),
 			Size:    size,
 			ModTime: info.ModTime().Format(time.DateTime),
 			IsDir:   e.IsDir(),
@@ -387,7 +399,7 @@ func serveDirectory(w http.ResponseWriter, _ *http.Request, dirPath, urlPath str
 		Path    string
 		Entries []dirEntry
 	}{
-		Path:    html.EscapeString(urlPath),
+		Path:    urlPath,
 		Entries: items,
 	}
 
@@ -412,7 +424,7 @@ const defaultDirectoryTemplate = `<!DOCTYPE html>
 <style>body{font-family:monospace;margin:2em}table{border-collapse:collapse;width:100%}
 th,td{text-align:left;padding:4px 12px}tr:hover{background:#f0f0f0}</style>
 </head><body><h1>Index of {{.Path}}</h1><table><tr><th>Name</th><th>Size</th><th>Modified</th></tr>
-{{range .Entries}}<tr><td>{{if .IsDir}}📁{{else}}📄{{end}} <a href="{{.Name}}{{if .IsDir}}/{{end}}">{{.Name}}</a></td>
+{{range .Entries}}<tr><td>{{if .IsDir}}📁{{else}}📄{{end}} <a href="{{.Link}}{{if .IsDir}}/{{end}}">{{.Name}}</a></td>
 <td>{{.Size}}</td><td>{{.ModTime}}</td></tr>{{end}}</table></body></html>`
 
 func formatSize(b int64) string {
@@ -439,6 +451,7 @@ func (g *gzipResponseWriter) Write(b []byte) (int, error) {
 
 func gzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Vary", "Accept-Encoding")
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
 			next.ServeHTTP(w, r)
 			return
@@ -683,12 +696,15 @@ func cmdHash(args []string) error {
 			if err != nil {
 				return fmt.Errorf("opening %s: %w", file, err)
 			}
-			defer f.Close()
 			r = f
 		}
 
-		if _, err := io.Copy(h, r); err != nil {
-			return fmt.Errorf("hashing %s: %w", file, err)
+		_, copyErr := io.Copy(h, r)
+		if f, ok := r.(*os.File); ok && f != os.Stdin {
+			f.Close()
+		}
+		if copyErr != nil {
+			return fmt.Errorf("hashing %s: %w", file, copyErr)
 		}
 
 		name := file
@@ -706,7 +722,7 @@ func cmdHash(args []string) error {
 
 func cmdEncode(args []string) error {
 	fs := flag.NewFlagSet("encode", flag.ExitOnError)
-	format := fs.String("format", "base64", "encoding format: base64, base32, hex, ascii85, url, qp (quoted-printable), utf16")
+	format := fs.String("format", "base64", "encoding format: base64, base32, hex, ascii85, url, html, qp (quoted-printable), utf16")
 	fs.Parse(args)
 
 	input, err := readInput(fs.Args())
@@ -727,6 +743,8 @@ func cmdEncode(args []string) error {
 		fmt.Println(string(dst[:n]))
 	case "url":
 		fmt.Println(url.QueryEscape(string(input)))
+	case "html":
+		fmt.Println(html.EscapeString(string(input)))
 	case "qp":
 		var buf bytes.Buffer
 		w := quotedprintable.NewWriter(&buf)
@@ -754,7 +772,7 @@ func cmdEncode(args []string) error {
 
 func cmdDecode(args []string) error {
 	fs := flag.NewFlagSet("decode", flag.ExitOnError)
-	format := fs.String("format", "base64", "decoding format: base64, base32, hex, ascii85, url, qp (quoted-printable), utf16")
+	format := fs.String("format", "base64", "decoding format: base64, base32, hex, ascii85, url, html, qp (quoted-printable), utf16")
 	fs.Parse(args)
 
 	input, err := readInput(fs.Args())
@@ -794,7 +812,9 @@ func cmdDecode(args []string) error {
 		if err != nil {
 			return fmt.Errorf("url decode: %w", err)
 		}
-		fmt.Print(decoded)
+		fmt.Println(decoded)
+	case "html":
+		fmt.Println(html.UnescapeString(trimmed))
 	case "qp":
 		r := quotedprintable.NewReader(strings.NewReader(trimmed))
 		decoded, err := io.ReadAll(r)
@@ -826,11 +846,10 @@ func cmdDecode(args []string) error {
 			}
 		}
 		runes := utf16.Decode(u16)
-		fmt.Print(string(runes))
+		fmt.Println(string(runes))
 	default:
 		return fmt.Errorf("unknown format: %s", *format)
 	}
-	fmt.Println()
 	return nil
 }
 
@@ -1238,6 +1257,10 @@ func extractTarStream(archivePath, dest string, decompressor func(io.Reader) (io
 			return fmt.Errorf("illegal path in archive: %s", header.Name)
 		}
 		switch header.Typeflag {
+		case tar.TypeSymlink, tar.TypeLink:
+			// Skip symlinks and hard links to prevent path traversal via symlink
+			slog.Warn("skipping link in archive", "name", header.Name, "type", header.Typeflag)
+			continue
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
 				return err
@@ -1447,21 +1470,6 @@ func generateBigInt(bits int) (string, error) {
 // bench — HTTP benchmarker
 // ---------------------------------------------------------------------------
 
-// latencyHeap implements heap.Interface for float64 values (latencies in ms).
-type latencyHeap []float64
-
-func (h latencyHeap) Len() int           { return len(h) }
-func (h latencyHeap) Less(i, j int) bool { return h[i] < h[j] }
-func (h latencyHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *latencyHeap) Push(x any)        { *h = append(*h, x.(float64)) }
-func (h *latencyHeap) Pop() any {
-	old := *h
-	n := len(old)
-	x := old[n-1]
-	*h = old[:n-1]
-	return x
-}
-
 func cmdBench(args []string) error {
 	fs := flag.NewFlagSet("bench", flag.ExitOnError)
 	requests := fs.Int("n", 100, "total requests")
@@ -1487,10 +1495,6 @@ func cmdBench(args []string) error {
 		mu        sync.Mutex
 		latencies []float64
 	)
-
-	// Use a heap to track top-N latencies
-	topLatencies := &latencyHeap{}
-	heap.Init(topLatencies)
 
 	client := &http.Client{Timeout: *timeout}
 	sem := make(chan struct{}, *concurrency)
@@ -1537,7 +1541,6 @@ func cmdBench(args []string) error {
 			completed.Add(1)
 			mu.Lock()
 			latencies = append(latencies, lat)
-			heap.Push(topLatencies, lat)
 			mu.Unlock()
 
 			_ = idx
@@ -2215,7 +2218,7 @@ func cmdDecrypt(args []string) error {
 		return fmt.Errorf("decryption failed (wrong password or corrupted data): %w", err)
 	}
 
-	if err := os.WriteFile(fs.Arg(1), plaintext, 0o644); err != nil {
+	if err := os.WriteFile(fs.Arg(1), plaintext, 0o600); err != nil {
 		return fmt.Errorf("writing output: %w", err)
 	}
 

@@ -171,8 +171,8 @@ Commands:
   serve      Start an HTTP/HTTPS file server with directory listing
   fetch      Fetch a URL and display response details
   hash       Compute hashes of files or stdin
-  encode     Encode data (base64, hex, url)
-  decode     Decode data (base64, hex, url)
+  encode     Encode data (base64, base32, hex, ascii85, url, qp, utf16)
+  decode     Decode data (base64, base32, hex, ascii85, url, qp, utf16)
   info       Display system and network information
   archive    Create tar.gz or zip archives
   generate   Generate passwords, tokens, or random data

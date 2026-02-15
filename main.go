@@ -107,7 +107,7 @@ import (
 var templateFS embed.FS
 
 const pgmName = "mtool"
-const pgmVersion = "1.0.0"
+const pgmVersion = "1.1.0"
 const pgmUrl = "https://github.com/jftuga/mtool"
 const pgmDisclaimer = "DISCLAIMER: This program is vibe-coded. Use at your own risk."
 
@@ -219,6 +219,12 @@ func cmdServe(args []string) error {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		reqPath := path.Clean(r.URL.Path)
 		filePath := filepath.Join(absDir, filepath.FromSlash(reqPath))
+
+		// Prevent path traversal outside the served root
+		if !strings.HasPrefix(filepath.Clean(filePath)+string(os.PathSeparator), filepath.Clean(absDir)+string(os.PathSeparator)) {
+			http.NotFound(w, r)
+			return
+		}
 
 		stat, err := os.Stat(filePath)
 		if err != nil {
@@ -1228,6 +1234,9 @@ func extractTarStream(archivePath, dest string, decompressor func(io.Reader) (io
 		}
 
 		target := filepath.Join(dest, filepath.Clean(header.Name))
+		if !strings.HasPrefix(filepath.Clean(target)+string(os.PathSeparator), filepath.Clean(dest)+string(os.PathSeparator)) {
+			return fmt.Errorf("illegal path in archive: %s", header.Name)
+		}
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
@@ -1260,6 +1269,9 @@ func extractZip(archivePath, dest string) error {
 
 	for _, file := range zr.File {
 		target := filepath.Join(dest, filepath.Clean(file.Name))
+		if !strings.HasPrefix(filepath.Clean(target)+string(os.PathSeparator), filepath.Clean(dest)+string(os.PathSeparator)) {
+			return fmt.Errorf("illegal path in archive: %s", file.Name)
+		}
 		if file.FileInfo().IsDir() {
 			if err := os.MkdirAll(target, 0o755); err != nil {
 				return err
@@ -1341,7 +1353,10 @@ func generatePassword(length int, charset string) (string, error) {
 
 	result := make([]byte, length)
 	for i := range length {
-		idx := mrand.IntN(len(chars))
+		idx, err := cryptoRandIntn(len(chars))
+		if err != nil {
+			return "", fmt.Errorf("generating password: %w", err)
+		}
 		result[i] = chars[idx]
 	}
 
@@ -1355,17 +1370,34 @@ func generatePassword(length int, charset string) (string, error) {
 		}
 		for i, cat := range categories {
 			if i < length {
-				idx := mrand.IntN(len(cat))
+				idx, err := cryptoRandIntn(len(cat))
+				if err != nil {
+					return "", fmt.Errorf("generating password: %w", err)
+				}
 				result[i] = cat[idx]
 			}
 		}
-		// Shuffle using math/rand/v2
-		mrand.Shuffle(len(result), func(i, j int) {
+		// Shuffle using crypto/rand
+		for i := len(result) - 1; i > 0; i-- {
+			j, err := cryptoRandIntn(i + 1)
+			if err != nil {
+				return "", fmt.Errorf("shuffling password: %w", err)
+			}
 			result[i], result[j] = result[j], result[i]
-		})
+		}
 	}
 
 	return string(result), nil
+}
+
+// cryptoRandIntn returns a cryptographically secure random int in [0, n).
+func cryptoRandIntn(n int) (int, error) {
+	max := big.NewInt(int64(n))
+	val, err := crand.Int(crand.Reader, max)
+	if err != nil {
+		return 0, err
+	}
+	return int(val.Int64()), nil
 }
 
 func generateToken(length int) (string, error) {
@@ -1436,6 +1468,7 @@ func cmdBench(args []string) error {
 	concurrency := fs.Int("c", 10, "concurrent workers")
 	timeout := fs.Duration("timeout", 10*time.Second, "request timeout")
 	method := fs.String("method", "GET", "HTTP method")
+	jitter := fs.Duration("jitter", 0, "max random delay before each request (e.g. 100ms)")
 	fs.Parse(args)
 
 	if fs.NArg() < 1 {
@@ -1473,6 +1506,10 @@ func cmdBench(args []string) error {
 		go func(idx int) {
 			defer wg.Done()
 			defer func() { <-sem }()
+
+			if *jitter > 0 {
+				time.Sleep(mrand.N(*jitter))
+			}
 
 			req, err := http.NewRequestWithContext(ctx, *method, targetURL, nil)
 			if err != nil {

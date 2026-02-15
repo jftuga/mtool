@@ -5,7 +5,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
-	"container/heap"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -141,34 +140,6 @@ func TestPercentile(t *testing.T) {
 			t.Errorf("p10 = %f, want 1", got)
 		}
 	})
-}
-
-// ---------------------------------------------------------------------------
-// latencyHeap
-// ---------------------------------------------------------------------------
-
-func TestLatencyHeap(t *testing.T) {
-	h := &latencyHeap{}
-	heap.Init(h)
-
-	values := []float64{5.0, 1.0, 9.0, 3.0, 7.0}
-	for _, v := range values {
-		heap.Push(h, v)
-	}
-
-	if h.Len() != 5 {
-		t.Fatalf("heap length = %d, want 5", h.Len())
-	}
-
-	// Min-heap: popping should yield ascending order.
-	prev := -1.0
-	for h.Len() > 0 {
-		val := heap.Pop(h).(float64)
-		if val < prev {
-			t.Errorf("heap order violated: got %f after %f", val, prev)
-		}
-		prev = val
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -629,8 +600,8 @@ func TestLoadDirectoryTemplate(t *testing.T) {
 	}{
 		Path: "/test",
 		Entries: []dirEntry{
-			{Name: "file.txt", Size: "1.0 KB", ModTime: "2025-01-01 00:00:00", IsDir: false},
-			{Name: "subdir", Size: "-", ModTime: "2025-01-01 00:00:00", IsDir: true},
+			{Name: "file.txt", Link: "file.txt", Size: "1.0 KB", ModTime: "2025-01-01 00:00:00", IsDir: false},
+			{Name: "subdir", Link: "subdir", Size: "-", ModTime: "2025-01-01 00:00:00", IsDir: true},
 		},
 	}
 
@@ -1343,7 +1314,9 @@ func TestEncodeDecodeQuotedPrintable(t *testing.T) {
 		}
 	})
 
-	if decoded != original {
+	// cmdDecode trims whitespace from input, so trailing newline in the
+	// original is lost during the round-trip through qp encoding
+	if strings.TrimRight(decoded, "\n") != strings.TrimRight(original, "\n") {
 		t.Errorf("round-trip failed:\n  original: %q\n  decoded:  %q", original, decoded)
 	}
 }
@@ -1386,7 +1359,7 @@ func TestEncodeDecodeUTF16(t *testing.T) {
 		t.Error("expected UTF-16 LE BOM (FF FE)")
 	}
 
-	// Decode — cmdDecode appends a trailing newline via fmt.Println()
+	// Decode — utf16 format uses fmt.Println() so appends a trailing newline
 	decoded := captureStdout(t, func() {
 		if err := cmdDecode([]string{"-format", "utf16", utf16Path}); err != nil {
 			t.Fatalf("decode: %v", err)
@@ -1425,8 +1398,7 @@ func TestEncodeDecodeBase64(t *testing.T) {
 		}
 	})
 
-	// cmdDecode adds a trailing newline
-	if decoded != original+"\n" {
+	if decoded != original {
 		t.Errorf("round-trip failed:\n  original: %q\n  decoded:  %q", original, decoded)
 	}
 }
@@ -1452,7 +1424,7 @@ func TestEncodeDecodeBase32(t *testing.T) {
 		}
 	})
 
-	if decoded != original+"\n" {
+	if decoded != original {
 		t.Errorf("round-trip failed:\n  original: %q\n  decoded:  %q", original, decoded)
 	}
 }
@@ -1482,7 +1454,7 @@ func TestEncodeDecodeHex(t *testing.T) {
 		}
 	})
 
-	if decoded != original+"\n" {
+	if decoded != original {
 		t.Errorf("round-trip failed:\n  original: %q\n  decoded:  %q", original, decoded)
 	}
 }
@@ -1508,7 +1480,7 @@ func TestEncodeDecodeAscii85(t *testing.T) {
 		}
 	})
 
-	if decoded != original+"\n" {
+	if decoded != original {
 		t.Errorf("round-trip failed:\n  original: %q\n  decoded:  %q", original, decoded)
 	}
 }
@@ -1534,6 +1506,37 @@ func TestEncodeDecodeURL(t *testing.T) {
 
 	decoded := captureStdout(t, func() {
 		if err := cmdDecode([]string{"-format", "url", encPath}); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+	})
+
+	if decoded != original+"\n" {
+		t.Errorf("round-trip failed:\n  original: %q\n  decoded:  %q", original, decoded)
+	}
+}
+
+func TestEncodeDecodeHTML(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "input.txt")
+	original := `<div class="foo">bar & baz</div>`
+	writeTestFile(t, srcPath, original)
+
+	encoded := captureStdout(t, func() {
+		if err := cmdEncode([]string{"-format", "html", srcPath}); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+	})
+
+	// Should contain HTML entities
+	if !strings.Contains(encoded, "&amp;") || !strings.Contains(encoded, "&lt;") || !strings.Contains(encoded, "&gt;") {
+		t.Errorf("expected HTML entities in encoded output, got: %s", strings.TrimSpace(encoded))
+	}
+
+	encPath := filepath.Join(dir, "encoded.txt")
+	writeTestFile(t, encPath, encoded)
+
+	decoded := captureStdout(t, func() {
+		if err := cmdDecode([]string{"-format", "html", encPath}); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
 	})

@@ -8,7 +8,7 @@
 
 The goal of this project was to write a practical CLI tool in Go that incorporates as many standard library modules as feasible without any third-party dependencies. Rather than contriving artificial usage, each package is pulled in naturally through a set of subcommands that solve real, everyday tasks: serving files, fetching URLs, hashing data, inspecting TLS certificates, benchmarking endpoints, converting images and more.
 
-The result is a single-binary multi-tool that leverages **94 unique standard library packages**.
+The result is a single-binary multi-tool that leverages **93 unique standard library packages**.
 
 ## Disclaimer
 
@@ -49,12 +49,12 @@ Run `mtool <command> -h` for help on any subcommand.
 | `serve` | Start an HTTP/HTTPS file server with directory listing, optional gzip, and self-signed TLS | `net/http`, `html/template`, `compress/gzip`, `compress/flate`, `embed`, `io/fs`, `mime`, `os/signal`, `context`, `syscall`, `crypto/ecdsa`, `crypto/elliptic`, `crypto/x509/pkix` |
 | `fetch` | Fetch a URL and display response details, with cookie support and timing trace | `net/http`, `net/http/httputil`, `net/http/httptrace`, `net/http/cookiejar`, `net/url` |
 | `hash` | Compute hashes of files or stdin | `crypto/md5`, `crypto/sha1`, `crypto/sha256`, `crypto/sha512`, `crypto/sha3`, `crypto/hmac`, `hash`, `hash/adler32`, `hash/crc32`, `hash/crc64`, `hash/fnv`, `encoding/hex` |
-| `encode` | Encode data (base64, base32, hex, ascii85, URL, quoted-printable, UTF-16) | `encoding/base64`, `encoding/base32`, `encoding/ascii85`, `encoding/hex`, `net/url`, `mime/quotedprintable`, `unicode/utf16` |
-| `decode` | Decode data (base64, base32, hex, ascii85, URL, quoted-printable, UTF-16) | `encoding/base64`, `encoding/base32`, `encoding/ascii85`, `encoding/hex`, `net/url`, `mime/quotedprintable`, `unicode/utf16` |
+| `encode` | Encode data (base64, base32, hex, ascii85, URL, HTML entities, quoted-printable, UTF-16) | `encoding/base64`, `encoding/base32`, `encoding/ascii85`, `encoding/hex`, `html`, `net/url`, `mime/quotedprintable`, `unicode/utf16` |
+| `decode` | Decode data (base64, base32, hex, ascii85, URL, HTML entities, quoted-printable, UTF-16) | `encoding/base64`, `encoding/base32`, `encoding/ascii85`, `encoding/hex`, `html`, `net/url`, `mime/quotedprintable`, `unicode/utf16` |
 | `info` | Display system and network information in multiple formats | `runtime`, `runtime/debug`, `encoding/json`, `encoding/xml`, `encoding/csv`, `reflect`, `text/tabwriter`, `net`, `net/netip`, `os/user`, `maps` |
 | `archive` | Create tar.gz or zip archives | `archive/tar`, `archive/zip`, `compress/gzip`, `path/filepath` |
 | `generate` | Generate passwords, tokens, UUIDs, or random data | `crypto/rand`, `math/big`, `encoding/binary` |
-| `bench` | Benchmark an HTTP endpoint with concurrency, jitter, and percentile stats | `sync`, `sync/atomic`, `container/heap`, `container/list`, `math`, `math/rand/v2`, `sort` |
+| `bench` | Benchmark an HTTP endpoint with concurrency, jitter, and percentile stats | `sync`, `sync/atomic`, `container/list`, `math`, `math/rand/v2`, `sort` |
 | `inspect` | Inspect TLS certificates or DNS records | `crypto/tls`, `crypto/x509`, `encoding/pem`, `net`, `net/netip` |
 | `transform` | Transform text (case, sort, grep, frequency, replace, and more) | `regexp`, `unicode`, `unicode/utf8`, `bufio`, `slices`, `cmp`, `strconv` |
 | `image` | Convert images between PNG, JPEG, and GIF formats with dithering | `image`, `image/png`, `image/jpeg`, `image/gif`, `image/draw`, `image/color/palette` |
@@ -105,6 +105,8 @@ echo "aGVsbG8gd29ybGQK" | mtool decode -format base64
 echo "hello" | mtool encode -format base32
 echo "hello" | mtool encode -format ascii85
 echo "foo bar" | mtool encode -format url
+echo '<div class="test">foo & bar</div>' | mtool encode -format html
+echo '&lt;div&gt;foo &amp; bar&lt;/div&gt;' | mtool decode -format html
 echo "Héllo wörld" | mtool encode -format qp
 echo "H=C3=A9llo" | mtool decode -format qp
 echo "hello" | mtool encode -format utf16 > output.utf16
@@ -226,9 +228,9 @@ mtool compress -level 9 -format gzip archive.tar archive.tar.gz
 
 ## Standard Library Packages
 
-The following 94 packages from the Go standard library are used:
+The following 93 packages from the Go standard library are used:
 
-`archive/tar`, `archive/zip`, `bufio`, `bytes`, `cmp`, `compress/bzip2`, `compress/flate`, `compress/gzip`, `compress/lzw`, `compress/zlib`, `container/heap`, `container/list`, `context`, `crypto/aes`, `crypto/cipher`, `crypto/ecdsa`, `crypto/elliptic`, `crypto/hmac`, `crypto/md5`, `crypto/pbkdf2`, `crypto/rand`, `crypto/sha1`, `crypto/sha256`, `crypto/sha3`, `crypto/sha512`, `crypto/tls`, `crypto/x509`, `crypto/x509/pkix`, `embed`, `encoding/ascii85`, `encoding/base32`, `encoding/base64`, `encoding/binary`, `encoding/csv`, `encoding/hex`, `encoding/json`, `encoding/pem`, `encoding/xml`, `errors`, `flag`, `fmt`, `hash`, `hash/adler32`, `hash/crc32`, `hash/crc64`, `hash/fnv`, `html`, `html/template`, `image`, `image/color/palette`, `image/draw`, `image/gif`, `image/jpeg`, `image/png`, `io`, `io/fs`, `log`, `log/slog`, `maps`, `math`, `math/big`, `math/rand/v2`, `mime`, `mime/quotedprintable`, `net`, `net/http`, `net/http/cookiejar`, `net/http/httptrace`, `net/http/httputil`, `net/netip`, `net/url`, `os`, `os/exec`, `os/signal`, `os/user`, `path`, `path/filepath`, `reflect`, `regexp`, `runtime`, `runtime/debug`, `slices`, `sort`, `strconv`, `strings`, `sync`, `sync/atomic`, `syscall`, `text/tabwriter`, `text/template/parse`, `time`, `unicode`, `unicode/utf16`, `unicode/utf8`
+`archive/tar`, `archive/zip`, `bufio`, `bytes`, `cmp`, `compress/bzip2`, `compress/flate`, `compress/gzip`, `compress/lzw`, `compress/zlib`, `container/list`, `context`, `crypto/aes`, `crypto/cipher`, `crypto/ecdsa`, `crypto/elliptic`, `crypto/hmac`, `crypto/md5`, `crypto/pbkdf2`, `crypto/rand`, `crypto/sha1`, `crypto/sha256`, `crypto/sha3`, `crypto/sha512`, `crypto/tls`, `crypto/x509`, `crypto/x509/pkix`, `embed`, `encoding/ascii85`, `encoding/base32`, `encoding/base64`, `encoding/binary`, `encoding/csv`, `encoding/hex`, `encoding/json`, `encoding/pem`, `encoding/xml`, `errors`, `flag`, `fmt`, `hash`, `hash/adler32`, `hash/crc32`, `hash/crc64`, `hash/fnv`, `html`, `html/template`, `image`, `image/color/palette`, `image/draw`, `image/gif`, `image/jpeg`, `image/png`, `io`, `io/fs`, `log`, `log/slog`, `maps`, `math`, `math/big`, `math/rand/v2`, `mime`, `mime/quotedprintable`, `net`, `net/http`, `net/http/cookiejar`, `net/http/httptrace`, `net/http/httputil`, `net/netip`, `net/url`, `os`, `os/exec`, `os/signal`, `os/user`, `path`, `path/filepath`, `reflect`, `regexp`, `runtime`, `runtime/debug`, `slices`, `sort`, `strconv`, `strings`, `sync`, `sync/atomic`, `syscall`, `text/tabwriter`, `text/template/parse`, `time`, `unicode`, `unicode/utf16`, `unicode/utf8`
 
 ## Tests
 
@@ -239,7 +241,6 @@ Run with `go test -v ./...`
 | `TestFormatSize` | Byte formatting across B, KB, MB, GB, TB boundaries |
 | `TestTLSVersionString` | TLS version code to string mapping, including unknown versions |
 | `TestPercentile` | Empty slice, single-element, and various percentile calculations |
-| `TestLatencyHeap` | Min-heap property: pop order is ascending |
 | `TestGeneratePassword` | Correct length, charset constraints (alpha/alnum/full), category coverage for full charset |
 | `TestGenerateToken` | Correct length, hex-only characters, uniqueness across calls |
 | `TestGenerateUUID` | V4 format (version nibble = `4`, variant = `[89ab]`), uniqueness across calls |
@@ -277,6 +278,7 @@ Run with `go test -v ./...`
 | `TestEncodeDecodeHex` | Hex round-trip: encode verifies known value, decode restores original |
 | `TestEncodeDecodeAscii85` | Ascii85 round-trip: encode then decode, verify content matches |
 | `TestEncodeDecodeURL` | URL encoding round-trip: verifies special characters are percent-encoded and decode restores original |
+| `TestEncodeDecodeHTML` | HTML entity round-trip: verifies `<`, `>`, `&`, `"` are escaped and decode restores original |
 | `TestTransformUpper` | Lowercase text converted to uppercase |
 | `TestTransformLower` | Uppercase text converted to lowercase |
 | `TestTransformReverse` | String reversal produces correct output |

@@ -106,7 +106,10 @@ import (
 //go:embed templates
 var templateFS embed.FS
 
-const version = "1.0.0"
+const pgmName = "mtool"
+const pgmVersion = "1.0.0"
+const pgmUrl = "https://github.com/jftuga/mtool"
+const pgmDisclaimer = "DISCLAIMER: This program is vibe-coded. Use at your own risk."
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -148,7 +151,8 @@ func main() {
 			if bi != nil {
 				goVer = bi.GoVersion
 			}
-			fmt.Printf("mtool %s (built with %s)\n", version, goVer)
+			fmt.Printf("mtool v%s (built with %s)\n", pgmVersion, goVer)
+			fmt.Printf("%s\n\n%s\n", pgmUrl, pgmDisclaimer)
 			return
 		}
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
@@ -163,7 +167,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stderr, `mtool %s — a Swiss army knife CLI utility
+	fmt.Fprintf(os.Stderr, `mtool v%s — a Swiss army knife CLI utility
 
 Usage: mtool <command> [options]
 
@@ -186,7 +190,7 @@ Commands:
   version    Show version information
 
 Run 'mtool <command> -h' for help on a specific command.
-`, version)
+`, pgmVersion)
 }
 
 // ---------------------------------------------------------------------------

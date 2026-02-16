@@ -8,7 +8,7 @@
 
 The goal of this project was to write a practical CLI tool in Go that incorporates as many standard library modules as feasible without any third-party dependencies. Rather than contriving artificial usage, each package is pulled in naturally through a set of subcommands that solve real, everyday tasks: serving files, fetching URLs, hashing data, inspecting TLS certificates, benchmarking endpoints, converting images and more.
 
-The result is a single-binary multi-tool that leverages **93 unique standard library packages**.
+The result is a single-binary multi-tool that leverages **91 unique standard library packages**.
 
 ## Disclaimer
 
@@ -38,7 +38,7 @@ brew install jftuga/tap/mtool
 ```bash
 git clone https://github.com/jftuga/mtool.git
 cd mtool
-go build -ldflags="-s -w" -o mtool
+CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o mtool .
 ```
 
 Requires Go 1.26 or later. No third-party dependencies.
@@ -275,88 +275,13 @@ mtool jwt eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjg
 mtool jwt -raw <token>
 ```
 
-## Standard Library Packages
-
-The following 93 packages from the Go standard library are used:
-
-`archive/tar`, `archive/zip`, `bufio`, `bytes`, `cmp`, `compress/bzip2`, `compress/flate`, `compress/gzip`, `compress/lzw`, `compress/zlib`, `container/list`, `context`, `crypto/aes`, `crypto/cipher`, `crypto/ecdsa`, `crypto/elliptic`, `crypto/hmac`, `crypto/md5`, `crypto/pbkdf2`, `crypto/rand`, `crypto/sha1`, `crypto/sha256`, `crypto/sha3`, `crypto/sha512`, `crypto/tls`, `crypto/x509`, `crypto/x509/pkix`, `embed`, `encoding/ascii85`, `encoding/base32`, `encoding/base64`, `encoding/binary`, `encoding/csv`, `encoding/hex`, `encoding/json`, `encoding/pem`, `encoding/xml`, `errors`, `flag`, `fmt`, `hash`, `hash/adler32`, `hash/crc32`, `hash/crc64`, `hash/fnv`, `html`, `html/template`, `image`, `image/color/palette`, `image/draw`, `image/gif`, `image/jpeg`, `image/png`, `io`, `io/fs`, `log`, `log/slog`, `maps`, `math`, `math/big`, `math/rand/v2`, `mime`, `mime/quotedprintable`, `net`, `net/http`, `net/http/cookiejar`, `net/http/httptrace`, `net/http/httputil`, `net/netip`, `net/url`, `os`, `os/exec`, `os/signal`, `os/user`, `path`, `path/filepath`, `reflect`, `regexp`, `runtime`, `runtime/debug`, `slices`, `sort`, `strconv`, `strings`, `sync`, `sync/atomic`, `syscall`, `text/tabwriter`, `text/template/parse`, `time`, `unicode`, `unicode/utf16`, `unicode/utf8`
-
 ## Tests
 
 Run with `go test -v ./...`
 
-| Test | What it verifies |
-|---|---|
-| `TestFormatSize` | Byte formatting across B, KB, MB, GB, TB boundaries |
-| `TestTLSVersionString` | TLS version code to string mapping, including unknown versions |
-| `TestPercentile` | Empty slice, single-element, and various percentile calculations |
-| `TestGeneratePassword` | Correct length, charset constraints (alpha/alnum/full), category coverage for full charset |
-| `TestGenerateToken` | Correct length, hex-only characters, uniqueness across calls |
-| `TestGenerateUUID` | V4 format (version nibble = `4`, variant = `[89ab]`), uniqueness across calls |
-| `TestGenerateBigInt` | Returns decimal digit strings for various bit widths |
-| `TestSortLines` | Alphabetical, reverse, numeric, numeric descending, case-insensitive, field-based, out-of-range field, non-numeric lines in numeric mode |
-| `TestPrintTextStats` | Line/word/letter/digit/byte counts, empty input, no-trailing-newline edge case, unicode |
-| `TestPrintWordFrequency` | Frequency ordering (most frequent first), case-insensitive folding |
-| `TestCreateTarGz` | Round-trip: create tar.gz, read it back, verify file contents |
-| `TestCreateZip` | Round-trip: create zip, read it back, verify file contents |
-| `TestCreateTarGzDirectory` | Recursive directory archiving preserves structure and nested files |
-| `TestLoadDirectoryTemplate` | Embedded template parses and renders with sample data |
-| `TestGenerateSelfSignedCert` | Certificate is self-signed, has correct subject/DNS/IP, valid for ~24h, usable by `tls.Config`, unique serial numbers |
-| `TestInferImageFormat` | Extension-to-format mapping for png/jpg/jpeg/gif, case insensitivity, unknown extensions |
-| `TestEncodeImage_PNG` | PNG encode/decode round-trip preserves dimensions |
-| `TestEncodeImage_JPEG` | JPEG encode/decode round-trip preserves dimensions |
-| `TestEncodeImage_GIF` | GIF encode/decode round-trip preserves dimensions |
-| `TestEncodeImage_Unsupported` | Unsupported format returns an error |
-| `TestImageRoundTrip` | Full PNG->JPEG->GIF->PNG conversion chain via `cmdImage`, verifying file output at each step |
-| `TestDeriveKey` | Deterministic output, correct key length (32 bytes), different passwords/salts produce different keys |
-| `TestEncryptDecryptRoundTrip` | Encrypt then decrypt, verify content matches original, encrypted data differs from plaintext |
-| `TestDecryptWrongPassword` | Decryption fails with incorrect password |
-| `TestEncryptProducesUniqueOutput` | Same file encrypted twice produces different ciphertext (unique salt/nonce) |
-| `TestCompressDecompressGzip` | Gzip round-trip: compress then decompress, verify content matches and compressed size is smaller |
-| `TestCompressDecompressZlib` | Zlib round-trip: compress then decompress, verify content matches and compressed size is smaller |
-| `TestCompressDecompressBzip2` | Bzip2 decompression: compress with system bzip2, decompress with mtool, verify content matches |
-| `TestCompressBzip2RejectsCompress` | Attempting bzip2 compression returns a clear "decompress only" error |
-| `TestCompressDecompressLZW` | LZW round-trip with litwidths 6, 7, 8: compress with header, decompress auto-detects litwidth |
-| `TestHashAdler32` | Adler-32 hash produces correct output for known input |
-| `TestHashCRC64` | CRC-64 hash produces correct output for known input |
-| `TestHashFNV` | FNV-32a, FNV-64a, FNV-128a produce correct output lengths for known input |
-| `TestEncodeDecodeQuotedPrintable` | Quoted-printable round-trip: encode then decode, verify non-ASCII is encoded and round-trips correctly |
-| `TestEncodeDecodeUTF16` | UTF-16 round-trip: encode with BOM then decode, verify content matches including non-ASCII characters |
-| `TestEncodeDecodeBase64` | Base64 round-trip: encode then decode, verify content matches |
-| `TestEncodeDecodeBase32` | Base32 round-trip: encode then decode, verify content matches |
-| `TestEncodeDecodeHex` | Hex round-trip: encode verifies known value, decode restores original |
-| `TestEncodeDecodeAscii85` | Ascii85 round-trip: encode then decode, verify content matches |
-| `TestEncodeDecodeURL` | URL encoding round-trip: verifies special characters are percent-encoded and decode restores original |
-| `TestEncodeDecodeHTML` | HTML entity round-trip: verifies `<`, `>`, `&`, `"` are escaped and decode restores original |
-| `TestTransformUpper` | Lowercase text converted to uppercase |
-| `TestTransformLower` | Uppercase text converted to lowercase |
-| `TestTransformReverse` | String reversal produces correct output |
-| `TestTransformGrep` | Regex filtering selects only matching lines |
-| `TestTransformReplace` | Regex replacement collapses whitespace correctly |
-| `TestTransformUniq` | Deduplication removes repeated lines, preserves order |
-| `TestHashAlgorithms` | All hash algorithms (md5, sha1, sha256, sha512, sha3-256, sha3-512, crc32) produce correct hex output lengths |
-| `TestHashHMAC` | HMAC differs from plain hash, is deterministic, and different keys produce different output |
-| `TestArchiveExtractTarGz` | Create tar.gz then extract, verify extracted file contents match originals |
-| `TestArchiveExtractZip` | Create zip then extract, verify extracted file contents match originals |
-| `TestCreateTarZlib` | Tar.zlib round-trip: create then extract, verify file contents match |
-| `TestCompressGzipLevels` | Gzip level 9 produces smaller output than level 1 for the same input |
-| `TestParseFlexibleTime` | Table-driven: RFC3339, ISO date, US date, named months, epoch seconds, error cases |
-| `TestTimeNow` | Output contains Local/UTC/RFC3339/Epoch labels |
-| `TestTimeFromEpoch` | Epoch 0 → 1970-01-01; known epoch → correct date |
-| `TestTimeToEpoch` | Known date → correct epoch |
-| `TestTimeConvert` | Timezone conversion correctness |
-| `TestJSONPretty` | Compact input → indented output with newlines |
-| `TestJSONCompact` | Indented input → single-line output |
-| `TestJSONValidate` | Valid/invalid JSON detection |
-| `TestJSONQuery` | Dot-path on nested objects/arrays, error on missing keys and out-of-range indices |
-| `TestNetCheck` | Open port succeeds with positive duration, closed port fails |
-| `TestNetScan` | Finds known open port in single-port range |
-| `TestNetWait` | Succeeds when port is open; times out when it isn't |
-| `TestNetEcho` | Echoed data matches sent data |
-| `TestDecodeJWT` | Manually-built JWT decodes correctly with expected header/payload fields |
-| `TestDecodeJWTInvalid` | Wrong part count returns error |
-| `TestFormatJWTExpiry` | Past/future/missing exp and iat/nbf claims handled correctly |
-| `TestJWTFromArg` | End-to-end cmdJWT produces Header/Payload output |
+The test suite contains 70 test functions spread across 15 subcommand-specific files (e.g., `cmd_hash_test.go`, `cmd_crypt_test.go`). Most subcommands are tested through round-trip verification: data is processed through a command and then reversed or decoded to confirm the output matches the original input. This pattern covers encoding/decoding in all eight formats, compression/decompression across gzip, zlib, LZW, and bzip2, encryption/decryption with correct and incorrect passwords, and archive creation and extraction for tar.gz, zip, and tar.zlib. Image conversion is tested through a full PNG to JPEG to GIF to PNG chain, verifying file output at each step.
+
+Where round-trips don't apply, tests verify correctness against known values (hash digests, epoch timestamps), check output structure (JSON pretty-printing, JWT header/payload labels, time format labels), or confirm error handling (invalid JSON, wrong password, unsupported formats, out-of-range indices). The network tests spin up local TCP listeners to exercise port checking, scanning, waiting, and echo without depending on external services. Shared test helpers for capturing stdout, writing temp files, and asserting output content live in `testhelpers_test.go`.
 
 ## Personal Project Disclosure
 

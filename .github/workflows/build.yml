@@ -1,8 +1,21 @@
+name: Release
+
 on:
   workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: "Skip running tests"
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: "Run without creating actual release"
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
-      - "*"
+      - "v*"
 
 permissions:
   contents: write
@@ -14,21 +27,33 @@ jobs:
 
     steps:
       - name: Check out code into the Go module directory
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Set Up Go
+      - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.x"
-        id: go
+          go-version: ">= 1.26.0"
 
-      - name: run GoReleaser
+      - name: Install UPX
+        run: sudo apt-get update && sudo apt-get install -y upx
+
+      - name: Run tests
+        if: ${{ !inputs.skip_tests }}
+        run: |
+          go test -v
+          go vet
+          go mod tidy
+          go build -o mtool .
+          ./testing-harness/test-all.sh
+          rm -f mtool
+
+      - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
-        env:
-          HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           distribution: goreleaser
-          args: release --clean
+          args: ${{ inputs.dry_run && 'release --snapshot --clean' || 'release --clean' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}

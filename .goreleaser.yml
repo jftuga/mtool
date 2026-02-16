@@ -1,11 +1,5 @@
 version: 2
 
-before:
-  hooks:
-    - go test
-    - go vet
-    - go mod tidy
-
 builds:
   - id: mtool
     binary: mtool
@@ -63,8 +57,10 @@ archives:
 
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}--checksums.txt"
+
 release:
   draft: false
+
 changelog:
   sort: asc
   filters:

@@ -11,6 +11,14 @@ import (
 	"testing"
 )
 
+func keys(m map[string]string) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	return ks
+}
+
 func TestCreateTarGz(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "a.txt"), "alpha")
@@ -48,14 +56,41 @@ func TestCreateTarGz(t *testing.T) {
 			t.Fatal(err)
 		}
 		body, _ := io.ReadAll(tr)
-		found[filepath.Base(hdr.Name)] = string(body)
+		found[hdr.Name] = string(body)
 	}
 
+	// Verify entries use relative names (just the filename, no absolute path)
 	if got, ok := found["a.txt"]; !ok || got != "alpha" {
-		t.Errorf("a.txt: got %q, want %q", got, "alpha")
+		t.Errorf("a.txt: got %q, want %q (keys: %v)", got, "alpha", keys(found))
 	}
 	if got, ok := found["b.txt"]; !ok || got != "bravo" {
-		t.Errorf("b.txt: got %q, want %q", got, "bravo")
+		t.Errorf("b.txt: got %q, want %q (keys: %v)", got, "bravo", keys(found))
+	}
+}
+
+func TestCreateTarGzRelativePaths(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "a.txt"), "alpha")
+
+	archivePath := filepath.Join(dir, "out.tar.gz")
+	if err := archive.CreateTarGz(archivePath, []string{filepath.Join(dir, "a.txt")}); err != nil {
+		t.Fatal(err)
+	}
+
+	f, _ := os.Open(archivePath)
+	defer f.Close()
+	gr, _ := gzip.NewReader(f)
+	defer gr.Close()
+	tr := tar.NewReader(gr)
+	hdr, err := tr.Next()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.IsAbs(hdr.Name) {
+		t.Errorf("archive entry should be relative, got %q", hdr.Name)
+	}
+	if hdr.Name != "a.txt" {
+		t.Errorf("expected entry name %q, got %q", "a.txt", hdr.Name)
 	}
 }
 
@@ -87,14 +122,15 @@ func TestCreateZip(t *testing.T) {
 		}
 		body, _ := io.ReadAll(rc)
 		rc.Close()
-		found[filepath.Base(zf.Name)] = string(body)
+		found[zf.Name] = string(body)
 	}
 
+	// Verify entries use relative names (just the filename, no absolute path)
 	if got, ok := found["x.txt"]; !ok || got != "xray" {
-		t.Errorf("x.txt: got %q, want %q", got, "xray")
+		t.Errorf("x.txt: got %q, want %q (keys: %v)", got, "xray", keys(found))
 	}
 	if got, ok := found["y.txt"]; !ok || got != "yankee" {
-		t.Errorf("y.txt: got %q, want %q", got, "yankee")
+		t.Errorf("y.txt: got %q, want %q (keys: %v)", got, "yankee", keys(found))
 	}
 }
 
@@ -131,6 +167,24 @@ func TestCreateTarGzDirectory(t *testing.T) {
 	if len(names) < 3 {
 		t.Errorf("expected at least 3 entries (dir + 2 files), got %d: %v", len(names), names)
 	}
+	// Verify all entry names are relative (no absolute paths)
+	for _, name := range names {
+		if filepath.IsAbs(name) {
+			t.Errorf("archive entry should be relative, got %q", name)
+		}
+	}
+	// Verify the directory structure uses the walk root name
+	expectedNames := map[string]bool{
+		"project":              true,
+		"project/root.txt":     true,
+		"project/sub":          true,
+		"project/sub/nested.txt": true,
+	}
+	for _, name := range names {
+		if !expectedNames[name] {
+			t.Errorf("unexpected archive entry: %q", name)
+		}
+	}
 }
 
 func TestArchiveExtractTarGz(t *testing.T) {
@@ -156,7 +210,7 @@ func TestArchiveExtractTarGz(t *testing.T) {
 	}
 
 	for _, name := range []string{"a.txt", "b.txt"} {
-		extractedPath := filepath.Join(destDir, srcDir, name)
+		extractedPath := filepath.Join(destDir, name)
 		data, err := os.ReadFile(extractedPath)
 		if err != nil {
 			t.Errorf("reading extracted %s: %v", name, err)
@@ -192,7 +246,7 @@ func TestArchiveExtractZip(t *testing.T) {
 	}
 
 	for _, name := range []string{"x.txt", "y.txt"} {
-		extractedPath := filepath.Join(destDir, srcDir, name)
+		extractedPath := filepath.Join(destDir, name)
 		data, err := os.ReadFile(extractedPath)
 		if err != nil {
 			t.Errorf("reading extracted %s: %v", name, err)

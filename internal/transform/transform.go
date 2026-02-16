@@ -57,7 +57,7 @@ func Run(opts ...Option) error {
 	case "lower":
 		fmt.Fprint(cfg.Stdout, strings.ToLower(text))
 	case "title":
-		fmt.Fprint(cfg.Stdout, strings.ToTitle(text))
+		fmt.Fprint(cfg.Stdout, toTitleCase(text))
 	case "reverse":
 		runes := []rune(text)
 		slices.Reverse(runes)
@@ -178,6 +178,26 @@ func PrintWordFrequency(text string, w io.Writer) {
 		fmt.Fprintf(tw, "%s\t%d\n", wc.Word, wc.Count)
 	}
 	tw.Flush()
+}
+
+// toTitleCase converts text to title case: the first letter of each word is
+// uppercased, the rest lowercased. Whitespace structure is preserved.
+func toTitleCase(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	wordStart := true
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			b.WriteRune(r)
+			wordStart = true
+		} else if wordStart {
+			b.WriteRune(unicode.ToUpper(r))
+			wordStart = false
+		} else {
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	return b.String()
 }
 
 // SortLines sorts lines of text.

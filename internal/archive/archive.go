@@ -81,6 +81,18 @@ func Run(opts ...Option) error {
 	}
 }
 
+// relativeName computes a portable relative archive entry name.
+// For a walk root of "/tmp/dir", a path "/tmp/dir/sub/file.txt" becomes "dir/sub/file.txt".
+// For a walk root of "/tmp/file.txt", the path "/tmp/file.txt" becomes "file.txt".
+func relativeName(root, p string) string {
+	base := filepath.Dir(filepath.Clean(root))
+	rel, err := filepath.Rel(base, p)
+	if err != nil {
+		rel = filepath.Base(p)
+	}
+	return filepath.ToSlash(rel)
+}
+
 // CreateTarGz creates a gzip-compressed tar archive.
 func CreateTarGz(output string, files []string) error {
 	f, err := os.Create(output)
@@ -104,7 +116,7 @@ func CreateTarGz(output string, files []string) error {
 			if err != nil {
 				return err
 			}
-			header.Name = p
+			header.Name = relativeName(file, p)
 			if err := tw.WriteHeader(header); err != nil {
 				return err
 			}
@@ -151,7 +163,7 @@ func CreateZip(output string, files []string) error {
 			if err != nil {
 				return err
 			}
-			header.Name = p
+			header.Name = relativeName(file, p)
 			header.Method = zip.Deflate
 
 			w, err := zw.CreateHeader(header)
@@ -198,7 +210,7 @@ func CreateTarZlib(output string, files []string) error {
 			if err != nil {
 				return err
 			}
-			header.Name = p
+			header.Name = relativeName(file, p)
 			if err := tw.WriteHeader(header); err != nil {
 				return err
 			}

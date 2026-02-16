@@ -14,9 +14,13 @@ output=$(echo "hello world" | "$MTOOL" transform -mode upper)
 output=$(echo "HELLO WORLD" | "$MTOOL" transform -mode lower)
 [[ "$output" == "hello world" ]] || { echo "FAIL: lower: got '$output'"; exit 1; }
 
-# --- title (Go's strings.ToTitle uppercases all runes, not just first letter of words) ---
+# --- title (proper title case: first letter of each word uppercased, rest lowercased) ---
 output=$(echo "hello world" | "$MTOOL" transform -mode title)
-[[ "$output" == "HELLO WORLD" ]] || { echo "FAIL: title: got '$output'"; exit 1; }
+[[ "$output" == "Hello World" ]] || { echo "FAIL: title: got '$output'"; exit 1; }
+
+# --- title with mixed case input ---
+output=$(echo -n "hELLO wORLD" | "$MTOOL" transform -mode title)
+[[ "$output" == "Hello World" ]] || { echo "FAIL: title mixed case: got '$output'"; exit 1; }
 
 # --- reverse (echo adds newline, which gets reversed to the front; use echo -n) ---
 output=$(echo -n "abcdef" | "$MTOOL" transform -mode reverse)

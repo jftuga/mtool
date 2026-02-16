@@ -163,6 +163,34 @@ func TestTransformLower(t *testing.T) {
 	}
 }
 
+func TestTransformTitle(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := dir + "/input.txt"
+	writeTestFile(t, srcPath, "hello world\n")
+	out := captureStdout(t, func() {
+		if err := cmdTransform([]string{"-mode", "title", srcPath}); err != nil {
+			t.Fatalf("transform: %v", err)
+		}
+	})
+	if out != "Hello World\n" {
+		t.Errorf("expected %q, got %q", "Hello World\n", out)
+	}
+}
+
+func TestTransformTitleMixedCase(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := dir + "/input.txt"
+	writeTestFile(t, srcPath, "hELLO wORLD")
+	out := captureStdout(t, func() {
+		if err := cmdTransform([]string{"-mode", "title", srcPath}); err != nil {
+			t.Fatalf("transform: %v", err)
+		}
+	})
+	if out != "Hello World" {
+		t.Errorf("expected %q, got %q", "Hello World", out)
+	}
+}
+
 func TestTransformReverse(t *testing.T) {
 	dir := t.TempDir()
 	srcPath := dir + "/input.txt"

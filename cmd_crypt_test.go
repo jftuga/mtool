@@ -129,3 +129,29 @@ func TestEncryptProducesUniqueOutput(t *testing.T) {
 		t.Error("two encryptions of the same file produced identical output (salt/nonce should differ)")
 	}
 }
+
+func TestResolvePassword(t *testing.T) {
+	t.Run("flag value takes precedence", func(t *testing.T) {
+		t.Setenv("MTOOL_PASSWORD", "from-env")
+		got := crypt.ResolvePassword("from-flag")
+		if got != "from-flag" {
+			t.Errorf("got %q, want %q", got, "from-flag")
+		}
+	})
+
+	t.Run("falls back to env var", func(t *testing.T) {
+		t.Setenv("MTOOL_PASSWORD", "from-env")
+		got := crypt.ResolvePassword("")
+		if got != "from-env" {
+			t.Errorf("got %q, want %q", got, "from-env")
+		}
+	})
+
+	t.Run("returns empty when neither set", func(t *testing.T) {
+		t.Setenv("MTOOL_PASSWORD", "")
+		got := crypt.ResolvePassword("")
+		if got != "" {
+			t.Errorf("got %q, want empty string", got)
+		}
+	})
+}

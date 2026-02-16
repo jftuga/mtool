@@ -106,7 +106,7 @@ import (
 var templateFS embed.FS
 
 const pgmName = "mtool"
-const pgmVersion = "1.2.0"
+const pgmVersion = "1.3.0"
 const pgmUrl = "https://github.com/jftuga/mtool"
 const pgmDisclaimer = "DISCLAIMER: This program is vibe-coded. Use at your own risk."
 
@@ -140,6 +140,10 @@ func main() {
 		"encrypt":   cmdEncrypt,
 		"decrypt":   cmdDecrypt,
 		"compress":  cmdCompress,
+		"time":      cmdTime,
+		"json":      cmdJSON,
+		"net":       cmdNet,
+		"jwt":       cmdJWT,
 	}
 
 	fn, ok := commands[cmd]
@@ -186,6 +190,10 @@ Commands:
   encrypt    Encrypt a file with AES-256-GCM (password-based)
   decrypt    Decrypt a file encrypted with the encrypt command
   compress   Compress or decompress data (gzip, zlib, lzw, bzip2)
+  time       Convert timestamps (now, toepoch, fromepoch, convert)
+  json       Process JSON (pretty, compact, validate, query)
+  net        Network utilities (check, scan, wait, echo)
+  jwt        Decode JWT tokens (no verification)
   version    Show version information
 
 Run 'mtool <command> -h' for help on a specific command.
@@ -2355,6 +2363,513 @@ func decompressStream(r io.Reader, w io.Writer, format string) error {
 
 	slog.Info("decompressed", "format", format, "bytes_written", n)
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// time — timestamp/date converter
+// ---------------------------------------------------------------------------
+
+func cmdTime(args []string) error {
+	fs := flag.NewFlagSet("time", flag.ExitOnError)
+	mode := fs.String("mode", "now", "mode: now, toepoch, fromepoch, convert")
+	format := fs.String("format", "", "Go time layout for output (e.g. 2006-01-02)")
+	zone := fs.String("zone", "", "timezone name (e.g. America/New_York)")
+	fs.Parse(args)
+
+	switch *mode {
+	case "now":
+		fmt.Println(formatMultiTime(time.Now()))
+		return nil
+	case "fromepoch":
+		if fs.NArg() < 1 {
+			return errors.New("usage: mtool time -mode fromepoch <epoch_seconds>")
+		}
+		epoch, err := strconv.ParseInt(fs.Arg(0), 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid epoch: %w", err)
+		}
+		t := time.Unix(epoch, 0)
+		if *format != "" {
+			fmt.Println(t.Format(*format))
+		} else {
+			fmt.Println(formatMultiTime(t))
+		}
+		return nil
+	case "toepoch":
+		if fs.NArg() < 1 {
+			return errors.New("usage: mtool time -mode toepoch <date_string>")
+		}
+		t, err := parseFlexibleTime(fs.Arg(0))
+		if err != nil {
+			return err
+		}
+		fmt.Println(t.Unix())
+		return nil
+	case "convert":
+		if fs.NArg() < 1 {
+			return errors.New("usage: mtool time -mode convert -zone <timezone> <date_string>")
+		}
+		if *zone == "" {
+			return errors.New("-zone is required for convert mode")
+		}
+		t, err := parseFlexibleTime(fs.Arg(0))
+		if err != nil {
+			return err
+		}
+		loc, err := time.LoadLocation(*zone)
+		if err != nil {
+			return fmt.Errorf("loading timezone: %w", err)
+		}
+		converted := t.In(loc)
+		if *format != "" {
+			fmt.Println(converted.Format(*format))
+		} else {
+			fmt.Println(formatMultiTime(converted))
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown mode: %s", *mode)
+	}
+}
+
+func parseFlexibleTime(s string) (time.Time, error) {
+	formats := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+		"01/02/2006 15:04:05",
+		"01/02/2006",
+		"Jan 2, 2006 15:04:05",
+		"Jan 2, 2006",
+		"January 2, 2006 15:04:05",
+		"January 2, 2006",
+		"02 Jan 2006 15:04:05",
+		"02 Jan 2006",
+	}
+	for _, f := range formats {
+		if t, err := time.Parse(f, s); err == nil {
+			return t, nil
+		}
+	}
+	// Try as epoch seconds
+	if epoch, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return time.Unix(epoch, 0), nil
+	}
+	return time.Time{}, fmt.Errorf("unable to parse time: %q", s)
+}
+
+func formatMultiTime(t time.Time) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Local:   %s\n", t.Local().Format("2006-01-02 15:04:05 MST"))
+	fmt.Fprintf(&sb, "UTC:     %s\n", t.UTC().Format("2006-01-02 15:04:05 MST"))
+	fmt.Fprintf(&sb, "RFC3339: %s\n", t.Format(time.RFC3339))
+	fmt.Fprintf(&sb, "Epoch:   %d", t.Unix())
+	return sb.String()
+}
+
+// ---------------------------------------------------------------------------
+// json — JSON processor
+// ---------------------------------------------------------------------------
+
+func cmdJSON(args []string) error {
+	fs := flag.NewFlagSet("json", flag.ExitOnError)
+	mode := fs.String("mode", "pretty", "mode: pretty, compact, validate, query")
+	query := fs.String("query", "", "dot-path query (e.g. .foo.bar, .items[0].name)")
+	indent := fs.String("indent", "  ", "indentation string for pretty mode")
+	fs.Parse(args)
+
+	data, err := readInput(fs.Args())
+	if err != nil {
+		return err
+	}
+
+	switch *mode {
+	case "pretty":
+		result, err := jsonPretty(data, *indent)
+		if err != nil {
+			return err
+		}
+		fmt.Println(result)
+	case "compact":
+		result, err := jsonCompact(data)
+		if err != nil {
+			return err
+		}
+		fmt.Println(result)
+	case "validate":
+		if json.Valid(data) {
+			fmt.Println("valid")
+		} else {
+			fmt.Println("invalid")
+			return errors.New("invalid JSON")
+		}
+	case "query":
+		if *query == "" {
+			return errors.New("-query is required for query mode")
+		}
+		result, err := jsonQuery(data, *query)
+		if err != nil {
+			return err
+		}
+		switch v := result.(type) {
+		case map[string]interface{}, []interface{}:
+			out, err := json.MarshalIndent(v, "", "  ")
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(out))
+		default:
+			fmt.Println(v)
+		}
+	default:
+		return fmt.Errorf("unknown mode: %s", *mode)
+	}
+	return nil
+}
+
+func jsonPretty(data []byte, indent string) (string, error) {
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, data, "", indent); err != nil {
+		return "", fmt.Errorf("pretty-printing JSON: %w", err)
+	}
+	return buf.String(), nil
+}
+
+func jsonCompact(data []byte) (string, error) {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, data); err != nil {
+		return "", fmt.Errorf("compacting JSON: %w", err)
+	}
+	return buf.String(), nil
+}
+
+func jsonQuery(data []byte, path string) (interface{}, error) {
+	var root interface{}
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("parsing JSON: %w", err)
+	}
+
+	// Strip leading dot
+	path = strings.TrimPrefix(path, ".")
+	if path == "" {
+		return root, nil
+	}
+
+	current := root
+	// Split on dots, but handle array indexing like [0]
+	parts := splitJSONPath(path)
+	for _, part := range parts {
+		// Check for array index: key[N]
+		if idx := strings.Index(part, "["); idx >= 0 {
+			key := part[:idx]
+			indexStr := strings.TrimSuffix(part[idx+1:], "]")
+			arrayIdx, err := strconv.Atoi(indexStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid array index: %s", part)
+			}
+			if key != "" {
+				obj, ok := current.(map[string]interface{})
+				if !ok {
+					return nil, fmt.Errorf("expected object at %q, got %T", key, current)
+				}
+				current, ok = obj[key]
+				if !ok {
+					return nil, fmt.Errorf("key not found: %q", key)
+				}
+			}
+			arr, ok := current.([]interface{})
+			if !ok {
+				return nil, fmt.Errorf("expected array at %q, got %T", part, current)
+			}
+			if arrayIdx < 0 || arrayIdx >= len(arr) {
+				return nil, fmt.Errorf("array index %d out of range (len=%d)", arrayIdx, len(arr))
+			}
+			current = arr[arrayIdx]
+		} else {
+			obj, ok := current.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("expected object at %q, got %T", part, current)
+			}
+			current, ok = obj[part]
+			if !ok {
+				return nil, fmt.Errorf("key not found: %q", part)
+			}
+		}
+	}
+	return current, nil
+}
+
+func splitJSONPath(path string) []string {
+	var parts []string
+	var current strings.Builder
+	for i := 0; i < len(path); i++ {
+		if path[i] == '.' && (current.Len() > 0 || i == 0) {
+			if current.Len() > 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			}
+		} else {
+			current.WriteByte(path[i])
+		}
+	}
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	return parts
+}
+
+// ---------------------------------------------------------------------------
+// net — network utilities
+// ---------------------------------------------------------------------------
+
+func cmdNet(args []string) error {
+	fs := flag.NewFlagSet("net", flag.ExitOnError)
+	mode := fs.String("mode", "check", "mode: check, scan, wait, echo")
+	timeout := fs.Duration("timeout", 5*time.Second, "connection timeout")
+	startPort := fs.Int("start", 1, "start port for scan")
+	endPort := fs.Int("end", 1024, "end port for scan")
+	addr := fs.String("addr", ":0", "listen address for echo server")
+	fs.Parse(args)
+
+	switch *mode {
+	case "check":
+		if fs.NArg() < 1 {
+			return errors.New("usage: mtool net -mode check <host:port>")
+		}
+		dur, err := netCheck(fs.Arg(0), *timeout)
+		if err != nil {
+			fmt.Printf("CLOSED %s (%v)\n", fs.Arg(0), err)
+			return err
+		}
+		fmt.Printf("OPEN %s (connected in %s)\n", fs.Arg(0), dur.Round(time.Microsecond))
+		return nil
+	case "scan":
+		if fs.NArg() < 1 {
+			return errors.New("usage: mtool net -mode scan -start N -end M <host>")
+		}
+		host := fs.Arg(0)
+		openPorts, err := netScan(host, *startPort, *endPort, *timeout)
+		if err != nil {
+			return err
+		}
+		if len(openPorts) == 0 {
+			fmt.Printf("No open ports found on %s (%d-%d)\n", host, *startPort, *endPort)
+		} else {
+			fmt.Printf("Open ports on %s:\n", host)
+			for _, p := range openPorts {
+				fmt.Printf("  %d\n", p)
+			}
+		}
+		return nil
+	case "wait":
+		if fs.NArg() < 1 {
+			return errors.New("usage: mtool net -mode wait -timeout <duration> <host:port>")
+		}
+		address := fs.Arg(0)
+		fmt.Fprintf(os.Stderr, "Waiting for %s (timeout %s)...\n", address, *timeout)
+		if err := netWait(address, *timeout); err != nil {
+			return err
+		}
+		fmt.Printf("OK %s is reachable\n", address)
+		return nil
+	case "echo":
+		return netEcho(*addr, *timeout)
+	default:
+		return fmt.Errorf("unknown mode: %s", *mode)
+	}
+}
+
+func netCheck(address string, timeout time.Duration) (time.Duration, error) {
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", address, timeout)
+	if err != nil {
+		return 0, err
+	}
+	conn.Close()
+	return time.Since(start), nil
+}
+
+func netScan(host string, start, end int, timeout time.Duration) ([]int, error) {
+	if start < 1 || end > 65535 || start > end {
+		return nil, fmt.Errorf("invalid port range: %d-%d", start, end)
+	}
+
+	var mu sync.Mutex
+	var openPorts []int
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 100) // bounded concurrency
+
+	for port := start; port <= end; port++ {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(p int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			address := net.JoinHostPort(host, strconv.Itoa(p))
+			conn, err := net.DialTimeout("tcp", address, timeout)
+			if err == nil {
+				conn.Close()
+				mu.Lock()
+				openPorts = append(openPorts, p)
+				mu.Unlock()
+			}
+		}(port)
+	}
+	wg.Wait()
+
+	sort.Ints(openPorts)
+	return openPorts, nil
+}
+
+func netWait(address string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", address, 500*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout waiting for %s after %s", address, timeout)
+}
+
+func netEcho(addr string, timeout time.Duration) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listening: %w", err)
+	}
+	defer ln.Close()
+
+	actualAddr := ln.Addr().String()
+	fmt.Fprintf(os.Stderr, "Echo server listening on %s\n", actualAddr)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		<-ctx.Done()
+		ln.Close()
+	}()
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+				return fmt.Errorf("accepting: %w", err)
+			}
+		}
+		go func(c net.Conn) {
+			defer c.Close()
+			io.Copy(c, c)
+		}(conn)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// jwt — JWT decoder (no verification)
+// ---------------------------------------------------------------------------
+
+func cmdJWT(args []string) error {
+	fs := flag.NewFlagSet("jwt", flag.ExitOnError)
+	raw := fs.Bool("raw", false, "output compact JSON instead of pretty-printed")
+	fs.Parse(args)
+
+	if fs.NArg() < 1 {
+		return errors.New("usage: mtool jwt [options] <token>")
+	}
+
+	token := fs.Arg(0)
+	header, payload, err := decodeJWT(token)
+	if err != nil {
+		return err
+	}
+
+	var hdrJSON, plJSON []byte
+	if *raw {
+		hdrJSON, err = json.Marshal(header)
+		if err != nil {
+			return fmt.Errorf("marshaling header: %w", err)
+		}
+		plJSON, err = json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("marshaling payload: %w", err)
+		}
+		fmt.Printf("%s\n%s\n", hdrJSON, plJSON)
+	} else {
+		hdrJSON, err = json.MarshalIndent(header, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshaling header: %w", err)
+		}
+		plJSON, err = json.MarshalIndent(payload, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshaling payload: %w", err)
+		}
+		fmt.Printf("Header:\n%s\n\nPayload:\n%s\n", hdrJSON, plJSON)
+		expiry := formatJWTExpiry(payload)
+		if expiry != "" {
+			fmt.Printf("\n%s\n", expiry)
+		}
+	}
+	return nil
+}
+
+func decodeJWT(token string) (header, payload map[string]interface{}, err error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, nil, fmt.Errorf("invalid JWT: expected 3 parts, got %d", len(parts))
+	}
+
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil, nil, fmt.Errorf("decoding JWT header: %w", err)
+	}
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, nil, fmt.Errorf("decoding JWT payload: %w", err)
+	}
+
+	if err := json.Unmarshal(headerBytes, &header); err != nil {
+		return nil, nil, fmt.Errorf("parsing JWT header: %w", err)
+	}
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		return nil, nil, fmt.Errorf("parsing JWT payload: %w", err)
+	}
+	return header, payload, nil
+}
+
+func formatJWTExpiry(payload map[string]interface{}) string {
+	var sb strings.Builder
+
+	if iat, ok := payload["iat"]; ok {
+		if f, ok := iat.(float64); ok {
+			t := time.Unix(int64(f), 0)
+			fmt.Fprintf(&sb, "Issued At:  %s\n", t.UTC().Format(time.RFC3339))
+		}
+	}
+	if nbf, ok := payload["nbf"]; ok {
+		if f, ok := nbf.(float64); ok {
+			t := time.Unix(int64(f), 0)
+			fmt.Fprintf(&sb, "Not Before: %s\n", t.UTC().Format(time.RFC3339))
+		}
+	}
+	if exp, ok := payload["exp"]; ok {
+		if f, ok := exp.(float64); ok {
+			t := time.Unix(int64(f), 0)
+			now := time.Now()
+			if now.After(t) {
+				fmt.Fprintf(&sb, "Expires:    %s (EXPIRED %s ago)\n", t.UTC().Format(time.RFC3339), now.Sub(t).Round(time.Second))
+			} else {
+				fmt.Fprintf(&sb, "Expires:    %s (valid for %s)\n", t.UTC().Format(time.RFC3339), t.Sub(now).Round(time.Second))
+			}
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // ---------------------------------------------------------------------------

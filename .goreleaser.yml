@@ -3,6 +3,7 @@ version: 2
 before:
   hooks:
     - go test
+    - go vet
     - go mod tidy
 
 builds:

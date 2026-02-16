@@ -70,6 +70,10 @@ Run `mtool <command> -h` for help on any subcommand.
 | `encrypt` | Encrypt a file with AES-256-GCM using a password-derived key | `crypto/aes`, `crypto/cipher`, `crypto/pbkdf2`, `crypto/sha256`, `crypto/rand` |
 | `decrypt` | Decrypt a file encrypted with the encrypt command | `crypto/aes`, `crypto/cipher`, `crypto/pbkdf2` |
 | `compress` | Compress or decompress data (gzip, zlib, lzw, bzip2) | `compress/bzip2`, `compress/gzip`, `compress/lzw`, `compress/zlib` |
+| `time` | Convert timestamps (now, toepoch, fromepoch, convert timezones) | `time`, `strconv` |
+| `json` | Process JSON (pretty-print, compact, validate, dot-path query) | `encoding/json`, `strconv` |
+| `net` | Network utilities (TCP check, port scan, wait, echo server) | `net`, `sync`, `strconv` |
+| `jwt` | Decode JWT tokens without verification (header, payload, expiry) | `encoding/base64`, `encoding/json`, `time` |
 
 ## Examples
 
@@ -235,6 +239,42 @@ mtool compress -level 9 -format gzip archive.tar archive.tar.gz
 
 > **Note:** bzip2 supports decompression only (Go's `compress/bzip2` package provides a reader but no writer).
 
+### Timestamps
+
+```bash
+mtool time -mode now
+mtool time -mode toepoch "2024-01-15T10:30:00Z"
+mtool time -mode fromepoch 1700000000
+mtool time -mode convert -zone America/New_York "2024-01-15T10:30:00Z"
+mtool time -mode fromepoch -format "2006-01-02" 1700000000
+```
+
+### JSON processing
+
+```bash
+echo '{"name":"alice","age":30}' | mtool json -mode pretty
+echo '{"name":"alice","age":30}' | mtool json -mode compact
+echo '{"name":"alice"}' | mtool json -mode validate
+echo '{"user":{"name":"alice"}}' | mtool json -mode query -query .user.name
+echo '{"items":[{"id":1},{"id":2}]}' | mtool json -mode query -query ".items[0].id"
+```
+
+### Network utilities
+
+```bash
+mtool net -mode check localhost:8080
+mtool net -mode scan -start 80 -end 443 example.com
+mtool net -mode wait -timeout 30s localhost:5432
+mtool net -mode echo -addr :9999
+```
+
+### JWT decoding
+
+```bash
+mtool jwt eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U
+mtool jwt -raw <token>
+```
+
 ## Standard Library Packages
 
 The following 93 packages from the Go standard library are used:
@@ -300,6 +340,23 @@ Run with `go test -v ./...`
 | `TestArchiveExtractZip` | Create zip then extract, verify extracted file contents match originals |
 | `TestCreateTarZlib` | Tar.zlib round-trip: create then extract, verify file contents match |
 | `TestCompressGzipLevels` | Gzip level 9 produces smaller output than level 1 for the same input |
+| `TestParseFlexibleTime` | Table-driven: RFC3339, ISO date, US date, named months, epoch seconds, error cases |
+| `TestTimeNow` | Output contains Local/UTC/RFC3339/Epoch labels |
+| `TestTimeFromEpoch` | Epoch 0 → 1970-01-01; known epoch → correct date |
+| `TestTimeToEpoch` | Known date → correct epoch |
+| `TestTimeConvert` | Timezone conversion correctness |
+| `TestJSONPretty` | Compact input → indented output with newlines |
+| `TestJSONCompact` | Indented input → single-line output |
+| `TestJSONValidate` | Valid/invalid JSON detection |
+| `TestJSONQuery` | Dot-path on nested objects/arrays, error on missing keys and out-of-range indices |
+| `TestNetCheck` | Open port succeeds with positive duration, closed port fails |
+| `TestNetScan` | Finds known open port in single-port range |
+| `TestNetWait` | Succeeds when port is open; times out when it isn't |
+| `TestNetEcho` | Echoed data matches sent data |
+| `TestDecodeJWT` | Manually-built JWT decodes correctly with expected header/payload fields |
+| `TestDecodeJWTInvalid` | Wrong part count returns error |
+| `TestFormatJWTExpiry` | Past/future/missing exp and iat/nbf claims handled correctly |
+| `TestJWTFromArg` | End-to-end cmdJWT produces Header/Payload output |
 
 ## Personal Project Disclosure
 

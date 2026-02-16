@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"mtool/internal/generate"
 	"regexp"
@@ -125,6 +126,20 @@ func TestGenerateUUID(t *testing.T) {
 			t.Error("two generated UUIDs are identical")
 		}
 	})
+}
+
+func TestGenerateRandomBytes(t *testing.T) {
+	for _, length := range []int{1, 16, 256} {
+		t.Run(fmt.Sprintf("length_%d", length), func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := generate.GenerateRandomBytes(length, &buf); err != nil {
+				t.Fatal(err)
+			}
+			if buf.Len() != length {
+				t.Errorf("wrote %d bytes, want %d", buf.Len(), length)
+			}
+		})
+	}
 }
 
 func TestGenerateBigInt(t *testing.T) {

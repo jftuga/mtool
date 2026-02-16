@@ -87,13 +87,52 @@ Shared helpers in `testhelpers_test.go`:
 - `writeTestFile(t, path, content)` — creates a temp file for test input
 - `assertContains(t, output, label, value)` — checks that output contains a line with both strings
 
+## Shell Script Testing Harness
+
+The `testing-harness/` directory contains black-box integration tests that exercise the compiled `mtool` binary end-to-end. These complement the Go unit tests by testing real flag parsing, stdin/stdout piping, exit codes, and multi-process interactions (e.g., starting a server and curling it).
+
+### Structure
+
+```
+testing-harness/
+  test-all.sh          # Master runner — calls each test-*.sh, reports summary
+  test-<subcommand>.sh # One per subcommand (19 scripts)
+```
+
+### Running
+
+```bash
+go build -o mtool .
+bash testing-harness/test-all.sh
+```
+
+Or with a custom binary path:
+
+```bash
+MTOOL=/path/to/mtool bash testing-harness/test-all.sh
+```
+
+### Conventions
+
+- Every script uses `set -euo pipefail` and cleans up temp files via `trap`
+- Tests use local servers (mtool serve, mtool net -mode echo) instead of external network calls, except `test-inspect.sh` which needs a real TLS/DNS target
+- Each script tests ALL flags of its subcommand
+- Background server processes are killed in the EXIT trap
+- Free ports are obtained via `python3 -c 'import socket; ...'`
+- Scripts print `<subcommand>: all tests passed` on success
+
+### Adding tests for a new subcommand
+
+Create `testing-harness/test-<name>.sh` following the pattern of existing scripts. The master runner `test-all.sh` automatically picks up any `test-*.sh` file in the directory.
+
 ## Adding a new subcommand
 
 1. Create `internal/<name>/<name>.go` with `Config`, `Option`, `With*` functions, and `Run`
 2. Create `cmd_<name>.go` with `cmdXxx(args []string) error` that parses flags and calls `Run`
 3. Register it in `main.go`'s command map
 4. Create `cmd_<name>_test.go` with tests
-5. Update `printUsage()` in `main.go`
+5. Create `testing-harness/test-<name>.sh` with integration tests
+6. Update `printUsage()` in `main.go`
 
 ## Build and verify
 

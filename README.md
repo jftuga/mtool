@@ -283,6 +283,15 @@ The test suite contains 70 test functions spread across 15 subcommand-specific f
 
 Where round-trips don't apply, tests verify correctness against known values (hash digests, epoch timestamps), check output structure (JSON pretty-printing, JWT header/payload labels, time format labels), or confirm error handling (invalid JSON, wrong password, unsupported formats, out-of-range indices). The network tests spin up local TCP listeners to exercise port checking, scanning, waiting, and echo without depending on external services. Shared test helpers for capturing stdout, writing temp files, and asserting output content live in `testhelpers_test.go`.
 
+### Shell Script Integration Tests
+
+In addition to Go unit tests, the `testing-harness/` directory contains 19 shell scripts that test the compiled `mtool` binary end-to-end. Each script exercises every flag of its subcommand, including server start/stop, stdin piping, round-trip verification, and error cases. Run them with:
+
+```bash
+go build -o mtool .
+bash testing-harness/test-all.sh
+```
+
 ## Personal Project Disclosure
 
 This program is my own original idea, conceived and developed entirely:

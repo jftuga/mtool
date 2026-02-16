@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"fmt"
 	"image"
 	"image/color"
@@ -19,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1900,6 +1902,442 @@ func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// time: parseFlexibleTime
+// ---------------------------------------------------------------------------
+
+func TestParseFlexibleTime(t *testing.T) {
+	tests := []struct {
+		input   string
+		wantErr bool
+	}{
+		{"2024-01-15T10:30:00Z", false},      // RFC3339
+		{"2024-01-15T10:30:00+05:00", false}, // RFC3339 with offset
+		{"2024-01-15", false},                // ISO date
+		{"01/15/2024", false},                // US date
+		{"Jan 15, 2024", false},              // Named month short
+		{"January 15, 2024", false},          // Named month long
+		{"15 Jan 2024", false},               // European style
+		{"2024-01-15 10:30:00", false},       // ISO datetime
+		{"01/15/2024 10:30:00", false},       // US datetime
+		{"Jan 15, 2024 10:30:00", false},     // Named month datetime
+		{"1700000000", false},                // Epoch seconds
+		{"not-a-date", true},                 // Invalid
+		{"", true},                           // Empty
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			_, err := parseFlexibleTime(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseFlexibleTime(%q) error = %v, wantErr = %v", tt.input, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// time: cmdTime modes
+// ---------------------------------------------------------------------------
+
+func TestTimeNow(t *testing.T) {
+	out := captureStdout(t, func() {
+		if err := cmdTime([]string{"-mode", "now"}); err != nil {
+			t.Fatalf("cmdTime now: %v", err)
+		}
+	})
+	for _, label := range []string{"Local:", "UTC:", "RFC3339:", "Epoch:"} {
+		if !strings.Contains(out, label) {
+			t.Errorf("output missing %q label", label)
+		}
+	}
+}
+
+func TestTimeFromEpoch(t *testing.T) {
+	t.Run("epoch zero", func(t *testing.T) {
+		out := captureStdout(t, func() {
+			if err := cmdTime([]string{"-mode", "fromepoch", "0"}); err != nil {
+				t.Fatalf("cmdTime fromepoch: %v", err)
+			}
+		})
+		if !strings.Contains(out, "1970-01-01") {
+			t.Errorf("expected 1970-01-01 in output, got: %s", out)
+		}
+	})
+
+	t.Run("known epoch", func(t *testing.T) {
+		// 1700000000 = 2023-11-14T22:13:20Z
+		out := captureStdout(t, func() {
+			if err := cmdTime([]string{"-mode", "fromepoch", "1700000000"}); err != nil {
+				t.Fatalf("cmdTime fromepoch: %v", err)
+			}
+		})
+		if !strings.Contains(out, "2023-11-14") {
+			t.Errorf("expected 2023-11-14 in output, got: %s", out)
+		}
+	})
+}
+
+func TestTimeToEpoch(t *testing.T) {
+	out := captureStdout(t, func() {
+		if err := cmdTime([]string{"-mode", "toepoch", "2024-01-01T00:00:00Z"}); err != nil {
+			t.Fatalf("cmdTime toepoch: %v", err)
+		}
+	})
+	if strings.TrimSpace(out) != "1704067200" {
+		t.Errorf("expected epoch 1704067200, got: %s", strings.TrimSpace(out))
+	}
+}
+
+func TestTimeConvert(t *testing.T) {
+	out := captureStdout(t, func() {
+		if err := cmdTime([]string{"-mode", "convert", "-zone", "UTC", "2024-01-01T00:00:00Z"}); err != nil {
+			t.Fatalf("cmdTime convert: %v", err)
+		}
+	})
+	if !strings.Contains(out, "2024-01-01") && !strings.Contains(out, "UTC") {
+		t.Errorf("expected UTC converted time, got: %s", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// json: pretty/compact/validate/query
+// ---------------------------------------------------------------------------
+
+func TestJSONPretty(t *testing.T) {
+	input := []byte(`{"name":"alice","age":30}`)
+	result, err := jsonPretty(input, "  ")
+	if err != nil {
+		t.Fatalf("jsonPretty: %v", err)
+	}
+	if !strings.Contains(result, "\n") {
+		t.Error("pretty output should contain newlines")
+	}
+	if !strings.Contains(result, "  ") {
+		t.Error("pretty output should contain indentation")
+	}
+	if !strings.Contains(result, `"name"`) {
+		t.Error("pretty output should contain original keys")
+	}
+}
+
+func TestJSONCompact(t *testing.T) {
+	input := []byte("{\n  \"name\": \"alice\",\n  \"age\": 30\n}")
+	result, err := jsonCompact(input)
+	if err != nil {
+		t.Fatalf("jsonCompact: %v", err)
+	}
+	if strings.Contains(result, "\n") {
+		t.Error("compact output should not contain newlines")
+	}
+	if result != `{"name":"alice","age":30}` {
+		t.Errorf("unexpected compact output: %s", result)
+	}
+}
+
+func TestJSONValidate(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		dir := t.TempDir()
+		srcPath := filepath.Join(dir, "valid.json")
+		writeTestFile(t, srcPath, `{"key":"value"}`)
+		out := captureStdout(t, func() {
+			err := cmdJSON([]string{"-mode", "validate", srcPath})
+			if err != nil {
+				t.Errorf("expected nil error for valid JSON, got: %v", err)
+			}
+		})
+		if !strings.Contains(out, "valid") {
+			t.Errorf("expected 'valid' in output, got: %s", out)
+		}
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		dir := t.TempDir()
+		srcPath := filepath.Join(dir, "invalid.json")
+		writeTestFile(t, srcPath, `{not json}`)
+		captureStdout(t, func() {
+			err := cmdJSON([]string{"-mode", "validate", srcPath})
+			if err == nil {
+				t.Error("expected error for invalid JSON, got nil")
+			}
+		})
+	})
+}
+
+func TestJSONQuery(t *testing.T) {
+	data := []byte(`{"user":{"name":"alice","scores":[10,20,30]},"items":[{"id":1},{"id":2}]}`)
+
+	t.Run("nested key", func(t *testing.T) {
+		result, err := jsonQuery(data, ".user.name")
+		if err != nil {
+			t.Fatalf("jsonQuery: %v", err)
+		}
+		if result != "alice" {
+			t.Errorf("expected alice, got: %v", result)
+		}
+	})
+
+	t.Run("array index", func(t *testing.T) {
+		result, err := jsonQuery(data, ".user.scores[1]")
+		if err != nil {
+			t.Fatalf("jsonQuery: %v", err)
+		}
+		if result != float64(20) {
+			t.Errorf("expected 20, got: %v", result)
+		}
+	})
+
+	t.Run("nested array object", func(t *testing.T) {
+		result, err := jsonQuery(data, ".items[0].id")
+		if err != nil {
+			t.Fatalf("jsonQuery: %v", err)
+		}
+		if result != float64(1) {
+			t.Errorf("expected 1, got: %v", result)
+		}
+	})
+
+	t.Run("missing key", func(t *testing.T) {
+		_, err := jsonQuery(data, ".user.missing")
+		if err == nil {
+			t.Error("expected error for missing key")
+		}
+	})
+
+	t.Run("out of range index", func(t *testing.T) {
+		_, err := jsonQuery(data, ".user.scores[99]")
+		if err == nil {
+			t.Error("expected error for out of range index")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// net: check/scan/wait/echo
+// ---------------------------------------------------------------------------
+
+func TestNetCheck(t *testing.T) {
+	// Start a listener to test against
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	t.Run("open port", func(t *testing.T) {
+		dur, err := netCheck(ln.Addr().String(), 2*time.Second)
+		if err != nil {
+			t.Errorf("expected open port, got error: %v", err)
+		}
+		if dur <= 0 {
+			t.Error("expected positive duration")
+		}
+	})
+
+	t.Run("closed port", func(t *testing.T) {
+		_, err := netCheck("127.0.0.1:1", 500*time.Millisecond)
+		if err == nil {
+			t.Error("expected error for closed port")
+		}
+	})
+}
+
+func TestNetScan(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+
+	openPorts, err := netScan("127.0.0.1", port, port, 2*time.Second)
+	if err != nil {
+		t.Fatalf("netScan: %v", err)
+	}
+	if len(openPorts) != 1 || openPorts[0] != port {
+		t.Errorf("expected [%d], got %v", port, openPorts)
+	}
+}
+
+func TestNetWait(t *testing.T) {
+	t.Run("port opens", func(t *testing.T) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ln.Close()
+
+		err = netWait(ln.Addr().String(), 2*time.Second)
+		if err != nil {
+			t.Errorf("expected success, got: %v", err)
+		}
+	})
+
+	t.Run("timeout", func(t *testing.T) {
+		err := netWait("127.0.0.1:1", 1*time.Second)
+		if err == nil {
+			t.Error("expected timeout error")
+		}
+	})
+}
+
+func TestNetEcho(t *testing.T) {
+	// Start echo server in background
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	// We manually run the echo logic rather than calling netEcho (which blocks)
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				io.Copy(c, c)
+			}(conn)
+		}
+	}()
+	defer ln.Close()
+
+	// Connect and test echo
+	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		t.Fatalf("connecting: %v", err)
+	}
+	defer conn.Close()
+
+	msg := "hello echo\n"
+	conn.Write([]byte(msg))
+	conn.(*net.TCPConn).CloseWrite()
+
+	buf, err := io.ReadAll(conn)
+	if err != nil {
+		t.Fatalf("reading: %v", err)
+	}
+	if string(buf) != msg {
+		t.Errorf("expected %q, got %q", msg, string(buf))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// jwt: decode and expiry
+// ---------------------------------------------------------------------------
+
+func TestDecodeJWT(t *testing.T) {
+	// Build a valid JWT manually: header.payload.signature
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"1234567890","name":"John Doe","iat":1516239022}`))
+	token := header + "." + payload + ".fakesignature"
+
+	hdr, pl, err := decodeJWT(token)
+	if err != nil {
+		t.Fatalf("decodeJWT: %v", err)
+	}
+
+	if hdr["alg"] != "HS256" {
+		t.Errorf("header alg = %v, want HS256", hdr["alg"])
+	}
+	if hdr["typ"] != "JWT" {
+		t.Errorf("header typ = %v, want JWT", hdr["typ"])
+	}
+	if pl["sub"] != "1234567890" {
+		t.Errorf("payload sub = %v, want 1234567890", pl["sub"])
+	}
+	if pl["name"] != "John Doe" {
+		t.Errorf("payload name = %v, want John Doe", pl["name"])
+	}
+}
+
+func TestDecodeJWTInvalid(t *testing.T) {
+	tests := []string{
+		"notajwt",
+		"two.parts",
+		"four.parts.here.extra",
+		"",
+	}
+	for _, token := range tests {
+		t.Run(token, func(t *testing.T) {
+			_, _, err := decodeJWT(token)
+			if err == nil {
+				t.Error("expected error for invalid JWT")
+			}
+		})
+	}
+}
+
+func TestFormatJWTExpiry(t *testing.T) {
+	t.Run("expired", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"exp": float64(1000000000), // 2001-09-08, well in the past
+		}
+		result := formatJWTExpiry(payload)
+		if !strings.Contains(result, "EXPIRED") {
+			t.Errorf("expected EXPIRED in output, got: %s", result)
+		}
+	})
+
+	t.Run("future", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"exp": float64(9999999999), // year 2286
+		}
+		result := formatJWTExpiry(payload)
+		if !strings.Contains(result, "valid for") {
+			t.Errorf("expected 'valid for' in output, got: %s", result)
+		}
+	})
+
+	t.Run("no exp", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"sub": "user",
+		}
+		result := formatJWTExpiry(payload)
+		if result != "" {
+			t.Errorf("expected empty string for no exp, got: %s", result)
+		}
+	})
+
+	t.Run("iat and nbf", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"iat": float64(1516239022),
+			"nbf": float64(1516239022),
+		}
+		result := formatJWTExpiry(payload)
+		if !strings.Contains(result, "Issued At:") {
+			t.Errorf("expected 'Issued At:' in output, got: %s", result)
+		}
+		if !strings.Contains(result, "Not Before:") {
+			t.Errorf("expected 'Not Before:' in output, got: %s", result)
+		}
+	})
+}
+
+func TestJWTFromArg(t *testing.T) {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"test","exp":9999999999}`))
+	token := header + "." + payload + ".sig"
+
+	out := captureStdout(t, func() {
+		if err := cmdJWT([]string{token}); err != nil {
+			t.Fatalf("cmdJWT: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "Header:") {
+		t.Error("output missing Header: label")
+	}
+	if !strings.Contains(out, "Payload:") {
+		t.Error("output missing Payload: label")
+	}
+	if !strings.Contains(out, "HS256") {
+		t.Error("output missing algorithm")
 	}
 }
 

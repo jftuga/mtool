@@ -10,6 +10,25 @@ The goal of this project was to write a practical CLI tool in Go that incorporat
 
 The result is a single-binary multi-tool that leverages **91 unique standard library packages**.
 
+### Origin Story
+
+This project started from a prompt I gave Claude.
+The goal was partly a fun experiment: build a useful CLI using only Go's standard library.
+The result ended up being far more practical than I expected.
+After that, I kept refining the codebase with Claude by adding more subcommands and tests
+as well as improving security and squashing bugs.
+
+### LLM Prompt
+
+```
+Write an actual *useful* program in Go that uses as many Go packages
+from the standard library that you deem feasible. Make it a CLI-based
+tool that can actually compile. No third-party packages are
+allowed. The main goal of this exercise is to see how many standard
+library packages you can shove into an actually somewhat useful
+program. Do you accept this challenge?
+```
+
 ## Disclaimer
 
 This software was developed with the assistance of AI (Anthropic Claude). It is

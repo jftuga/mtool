@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"github.com/jftuga/mtool/internal/generate"
+	"github.com/jftuga/mtool/v2/internal/generate"
 )
 
 func cmdGenerate(args []string) error {

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/jftuga/mtool/internal/bench"
+	"github.com/jftuga/mtool/v2/internal/bench"
 	"testing"
 )
 

@@ -48,7 +48,7 @@ own risk.** The author assumes no liability for any damages arising from its use
 
 **Go Install**
 ```bash
-go install -ldflags="-s -w" github.com/jftuga/mtool@latest
+go install -ldflags="-s -w" github.com/jftuga/mtool/v2@latest
 ```
 
 **Homebrew**

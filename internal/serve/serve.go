@@ -21,7 +21,7 @@ import (
 	"log/slog"
 	"math/big"
 	"mime"
-	"github.com/jftuga/mtool/internal/shared"
+	"github.com/jftuga/mtool/v2/internal/shared"
 	"net"
 	"net/http"
 	"net/url"

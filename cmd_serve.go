@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"github.com/jftuga/mtool/internal/serve"
+	"github.com/jftuga/mtool/v2/internal/serve"
 )
 
 func cmdServe(args []string) error {

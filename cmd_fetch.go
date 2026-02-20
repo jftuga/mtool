@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
-	"github.com/jftuga/mtool/internal/fetch"
+	"github.com/jftuga/mtool/v2/internal/fetch"
 	"time"
 )
 

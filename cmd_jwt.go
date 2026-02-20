@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"github.com/jftuga/mtool/internal/jwt"
+	"github.com/jftuga/mtool/v2/internal/jwt"
 )
 
 func cmdJWT(args []string) error {

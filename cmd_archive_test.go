@@ -5,7 +5,7 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"io"
-	"mtool/internal/archive"
+	"github.com/jftuga/mtool/internal/archive"
 	"os"
 	"path/filepath"
 	"testing"

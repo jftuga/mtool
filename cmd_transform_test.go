@@ -1,7 +1,7 @@
 package main
 
 import (
-	"mtool/internal/transform"
+	"github.com/jftuga/mtool/internal/transform"
 	"os"
 	"strings"
 	"testing"

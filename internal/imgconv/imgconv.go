@@ -11,7 +11,7 @@ import (
 	"image/png"
 	"io"
 	"log/slog"
-	"mtool/internal/shared"
+	"github.com/jftuga/mtool/internal/shared"
 	"os"
 	"path/filepath"
 	"strings"

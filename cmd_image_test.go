@@ -7,7 +7,7 @@ import (
 	"image/gif"
 	"image/jpeg"
 	"image/png"
-	"mtool/internal/imgconv"
+	"github.com/jftuga/mtool/internal/imgconv"
 	"os"
 	"path/filepath"
 	"testing"

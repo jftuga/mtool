@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mtool/internal/shared"
+	"github.com/jftuga/mtool/internal/shared"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptrace"

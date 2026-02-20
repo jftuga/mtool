@@ -2,8 +2,8 @@ package main
 
 import (
 	"flag"
-	"mtool/internal/codec"
-	"mtool/internal/shared"
+	"github.com/jftuga/mtool/internal/codec"
+	"github.com/jftuga/mtool/internal/shared"
 )
 
 func cmdEncode(args []string) error {

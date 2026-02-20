@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
-	"mtool/internal/inspect"
+	"github.com/jftuga/mtool/internal/inspect"
 )
 
 func cmdInspect(args []string) error {

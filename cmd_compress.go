@@ -4,7 +4,7 @@ import (
 	"compress/gzip"
 	"errors"
 	"flag"
-	"mtool/internal/compress"
+	"github.com/jftuga/mtool/internal/compress"
 )
 
 func cmdCompress(args []string) error {

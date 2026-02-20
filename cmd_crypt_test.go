@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"mtool/internal/crypt"
+	"github.com/jftuga/mtool/internal/crypt"
 	"os"
 	"path/filepath"
 	"testing"

@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
-	"mtool/internal/crypt"
+	"github.com/jftuga/mtool/internal/crypt"
 )
 
 func cmdEncrypt(args []string) error {

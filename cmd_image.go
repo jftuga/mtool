@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
-	"mtool/internal/imgconv"
+	"github.com/jftuga/mtool/internal/imgconv"
 )
 
 func cmdImage(args []string) error {

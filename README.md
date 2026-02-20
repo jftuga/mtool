@@ -46,6 +46,11 @@ own risk.** The author assumes no liability for any damages arising from its use
 
 ## Installation
 
+**Go Install**
+```bash
+go install -ldflags="-s -w" github.com/jftuga/mtool@latest
+```
+
 **Homebrew**
 ```bash
 brew tap jftuga/homebrew-tap

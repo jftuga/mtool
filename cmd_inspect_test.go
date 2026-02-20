@@ -1,7 +1,7 @@
 package main
 
 import (
-	"mtool/internal/inspect"
+	"github.com/jftuga/mtool/internal/inspect"
 	"testing"
 )
 

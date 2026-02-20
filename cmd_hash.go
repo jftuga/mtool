@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"mtool/internal/hash"
+	"github.com/jftuga/mtool/internal/hash"
 )
 
 func cmdHash(args []string) error {

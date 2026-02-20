@@ -1,7 +1,7 @@
 package main
 
 import (
-	"mtool/internal/timecmd"
+	"github.com/jftuga/mtool/internal/timecmd"
 	"strings"
 	"testing"
 )

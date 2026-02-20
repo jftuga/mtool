@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"mtool/internal/info"
+	"github.com/jftuga/mtool/internal/info"
 )
 
 func cmdInfo(args []string) error {

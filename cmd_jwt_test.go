@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/base64"
-	"mtool/internal/jwt"
+	"github.com/jftuga/mtool/internal/jwt"
 	"strings"
 	"testing"
 )

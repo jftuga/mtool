@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"mtool/internal/netcmd"
+	"github.com/jftuga/mtool/internal/netcmd"
 	"time"
 )
 

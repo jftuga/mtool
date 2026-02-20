@@ -14,7 +14,7 @@ import (
 )
 
 const pgmName = "mtool"
-const pgmVersion = "2.0.1"
+const pgmVersion = "2.0.2"
 const pgmUrl = "https://github.com/jftuga/mtool"
 const pgmDisclaimer = "DISCLAIMER: This program is vibe-coded. Use at your own risk."
 

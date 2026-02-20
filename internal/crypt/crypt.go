@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"mtool/internal/shared"
+	"github.com/jftuga/mtool/internal/shared"
 	"os"
 )
 

@@ -6,7 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"maps"
-	"mtool/internal/shared"
+	"github.com/jftuga/mtool/internal/shared"
 	"net"
 	"net/netip"
 	"os"

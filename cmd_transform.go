@@ -2,8 +2,8 @@ package main
 
 import (
 	"flag"
-	"mtool/internal/shared"
-	"mtool/internal/transform"
+	"github.com/jftuga/mtool/internal/shared"
+	"github.com/jftuga/mtool/internal/transform"
 )
 
 func cmdTransform(args []string) error {

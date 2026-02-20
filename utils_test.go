@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"mtool/internal/shared"
+	"github.com/jftuga/mtool/internal/shared"
 	"path/filepath"
 	"testing"
 )

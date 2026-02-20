@@ -3,7 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"mtool/internal/serve"
+	"github.com/jftuga/mtool/internal/serve"
 	"net"
 	"strings"
 	"testing"

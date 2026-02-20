@@ -2,8 +2,8 @@ package main
 
 import (
 	"flag"
-	"mtool/internal/jsoncmd"
-	"mtool/internal/shared"
+	"github.com/jftuga/mtool/internal/jsoncmd"
+	"github.com/jftuga/mtool/internal/shared"
 )
 
 func cmdJSON(args []string) error {

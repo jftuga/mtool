@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/jftuga/mtool/internal/generate"
+	"github.com/jftuga/mtool/v2/internal/generate"
 	"regexp"
 	"testing"
 	"unicode"

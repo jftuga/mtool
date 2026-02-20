@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"github.com/jftuga/mtool/internal/timecmd"
+	"github.com/jftuga/mtool/v2/internal/timecmd"
 )
 
 func cmdTime(args []string) error {

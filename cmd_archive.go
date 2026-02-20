@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"github.com/jftuga/mtool/internal/archive"
+	"github.com/jftuga/mtool/v2/internal/archive"
 )
 
 func cmdArchive(args []string) error {

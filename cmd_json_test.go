@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/jftuga/mtool/internal/jsoncmd"
+	"github.com/jftuga/mtool/v2/internal/jsoncmd"
 	"path/filepath"
 	"strings"
 	"testing"

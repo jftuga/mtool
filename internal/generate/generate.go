@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"github.com/jftuga/mtool/internal/shared"
+	"github.com/jftuga/mtool/v2/internal/shared"
 	"os"
 )
 

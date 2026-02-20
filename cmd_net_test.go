@@ -2,7 +2,7 @@ package main
 
 import (
 	"io"
-	"github.com/jftuga/mtool/internal/netcmd"
+	"github.com/jftuga/mtool/v2/internal/netcmd"
 	"net"
 	"strconv"
 	"testing"

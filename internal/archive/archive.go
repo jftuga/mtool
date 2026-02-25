@@ -101,7 +101,10 @@ func CreateTarGz(output string, files []string) error {
 	}
 	defer f.Close()
 
-	gw := gzip.NewWriter(f)
+	gw, err := gzip.NewWriterLevel(f, gzip.BestCompression)
+	if err != nil {
+		return err
+	}
 	defer gw.Close()
 
 	tw := tar.NewWriter(gw)
@@ -195,7 +198,10 @@ func CreateTarZlib(output string, files []string) error {
 	}
 	defer f.Close()
 
-	zw := zlib.NewWriter(f)
+	zw, err := zlib.NewWriterLevel(f, zlib.BestCompression)
+	if err != nil {
+		return err
+	}
 	defer zw.Close()
 
 	tw := tar.NewWriter(zw)

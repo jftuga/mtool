@@ -34,7 +34,7 @@ func WithOutputPath(p string) Option   { return func(c *Config) { c.OutputPath =
 
 // Run compresses or decompresses data.
 func Run(opts ...Option) error {
-	cfg := &Config{Format: "gzip", Level: gzip.DefaultCompression, LZWLitWidth: 8}
+	cfg := &Config{Format: "gzip", Level: gzip.BestCompression, LZWLitWidth: 8}
 	for _, o := range opts {
 		o(cfg)
 	}

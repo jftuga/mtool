@@ -126,10 +126,9 @@ func Run(opts ...Option) error {
 	handler = loggingMiddleware(handler)
 
 	srv := &http.Server{
-		Addr:         cfg.Addr,
-		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		Addr:              cfg.Addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 15 * time.Second,
 	}
 
 	if cfg.EnableTLS {

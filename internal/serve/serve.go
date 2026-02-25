@@ -296,7 +296,7 @@ func gzipMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		gz, err := gzip.NewWriterLevel(w, flate.DefaultCompression)
+		gz, err := gzip.NewWriterLevel(w, flate.BestCompression)
 		if err != nil {
 			next.ServeHTTP(w, r)
 			return
